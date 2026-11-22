@@ -362,8 +362,8 @@ let toastT;
 function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2800); }
 
 /* ============================== Google: login ============================== */
-const CLIENT_ID = '__CLIENT_ID__';
-const DEMO = CLIENT_ID.startsWith('__');              // sem credenciais → modo pré-visualização com dados de exemplo
+const CLIENT_ID = '1003246535335-i5duipob43pmjfgj52oon00fa71sq56p.apps.googleusercontent.com';
+const DEMO = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && !/[?&]real\b/.test(location.search);   // no PC: pré-visualização com dados de exemplo
 const SCOPE_FILE = 'https://www.googleapis.com/auth/drive.file';
 const SCOPES = SCOPE_FILE + ' openid email profile';
 const SS_TITLE = 'Orçamento Pessoal';
