@@ -502,10 +502,18 @@ async function readAll(){
   const goals = {}; v(2).forEach((x, i) => { if (x[0] !== '' && x[0] != null) goals[toStr(x[0])] = { row: i + 2, goal: Math.round(Number(x[1]) * 100) }; });
   const cfg = {}; v(3).forEach((x, i) => { cfg[toStr(x[0])] = { row: i + 2, value: x[1] }; });
   const dv = cfg.orcamentoPadrao ? Number(cfg.orcamentoPadrao.value) : 400;
-  return { ss, exp, months, goals, cfg, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
+  // próxima linha livre de cada folha (escrevemos sempre em posições exatas; o "append" do Google pode desalinhar colunas)
+  const next = { Despesas: v(0).length + 2, Meses: v(1).length + 2, Objetivos: v(2).length + 2, Config: v(3).length + 2 };
+  return { ss, exp, months, goals, cfg, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
 }
 const putValues = (ss, range, values) => gfetch(`${SHEETS_API}/${ss.id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { method: 'PUT', body: JSON.stringify({ values }) });
-const appendValues = (ss, range, values) => gfetch(`${SHEETS_API}/${ss.id}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, { method: 'POST', body: JSON.stringify({ values }) });
+// escreve linhas novas a partir da próxima linha livre, nas colunas exatas (A…)
+function appendRows(D, sheet, values){
+  const start = D.next[sheet], end = start + values.length - 1;
+  const lastCol = String.fromCharCode(64 + values[0].length);
+  D.next[sheet] = end + 1;
+  return putValues(D.ss, `${sheet}!A${start}:${lastCol}${end}`, values);
+}
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 const nowStamp = () => { const d = new Date(); return ymd(d) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
 const cleanDesc = d => String(d == null ? '' : d).replace(/^[=+@\s]+/, '').trim().slice(0, 100);
@@ -528,9 +536,9 @@ async function api(action, p){
         out.push(e);
         return [e.id, e.date, e.month, e.desc, cents / 100, e.category, stamp];
       });
-      await appendValues(ss, 'Despesas!A:G', rows);
+      await appendRows(D, 'Despesas', rows);
       const newMonths = [...new Set(out.map(e => e.month))].filter(m => !D.months[m]);
-      if (newMonths.length) await appendValues(ss, 'Meses!A:B', newMonths.map(m => [m, D.def / 100]));
+      if (newMonths.length) await appendRows(D, 'Meses', newMonths.map(m => [m, D.def / 100]));
       return out;
     }
     case 'updateExpense': {
@@ -549,17 +557,17 @@ async function api(action, p){
     case 'setBudget': {
       const m = D.months[p.month];
       if (m) await putValues(ss, `Meses!B${m.row}`, [[p.cents / 100]]);
-      else await appendValues(ss, 'Meses!A:B', [[p.month, p.cents / 100]]);
+      else await appendRows(D, 'Meses', [[p.month, p.cents / 100]]);
       if (p.makeDefault) {
         if (D.cfg.orcamentoPadrao) await putValues(ss, `Config!B${D.cfg.orcamentoPadrao.row}`, [[p.cents / 100]]);
-        else await appendValues(ss, 'Config!A:B', [['orcamentoPadrao', p.cents / 100]]);
+        else await appendRows(D, 'Config', [['orcamentoPadrao', p.cents / 100]]);
       }
       return {};
     }
     case 'setGoal': {
       const g = D.goals[String(p.year)];
       if (g) await putValues(ss, `Objetivos!B${g.row}`, [[p.cents / 100]]);
-      else await appendValues(ss, 'Objetivos!A:B', [[p.year, p.cents / 100]]);
+      else await appendRows(D, 'Objetivos', [[p.year, p.cents / 100]]);
       return {};
     }
     case 'getYear': {
