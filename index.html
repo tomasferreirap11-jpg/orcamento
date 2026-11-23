@@ -273,6 +273,10 @@ textarea.field{resize:vertical;min-height:180px;line-height:1.5}
 .login .other{margin-top:16px;color:var(--muted);font-weight:600;font-size:14px}
 .login .err{color:var(--bad);font-size:14px;margin-top:16px;max-width:320px}
 body.locked{overflow:hidden}
+/* com uma janela aberta, o ecrã de trás fica parado (no iPhone só "position:fixed" impede o scroll) */
+body.sheet-lock{position:fixed;left:0;right:0;overflow:hidden}
+.sheet{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.scrim{touch-action:none}
 @media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
 </style>
 </head>
@@ -1124,8 +1128,20 @@ function renderYear(target){
 }
 
 /* ============================== folha inferior ============================== */
-function openSheet(html){ $('#sheet').innerHTML = '<div class="grab"></div>' + html; $('#scrim').classList.add('open'); const sh = $('#sheet'); void sh.offsetWidth; sh.classList.add('open'); }
-function closeSheet(){ $('#sheet').classList.remove('open'); $('#scrim').classList.remove('open'); F = null; }
+let lockY = null;
+function lockBody(){
+  if (lockY != null) return;
+  lockY = window.scrollY;
+  document.body.style.top = -lockY + 'px';
+  document.body.classList.add('sheet-lock');
+}
+function unlockBody(){
+  if (lockY == null) return;
+  document.body.classList.remove('sheet-lock'); document.body.style.top = '';
+  window.scrollTo(0, lockY); lockY = null;
+}
+function openSheet(html){ $('#sheet').innerHTML = '<div class="grab"></div>' + html; $('#sheet').scrollTop = 0; lockBody(); $('#scrim').classList.add('open'); const sh = $('#sheet'); void sh.offsetWidth; sh.classList.add('open'); }
+function closeSheet(){ $('#sheet').classList.remove('open'); $('#scrim').classList.remove('open'); unlockBody(); F = null; }
 
 let F = null;   // formulário aberto
 function defaultDate(){ return S.month === TODAY_MONTH ? TODAY : S.month + '-01'; }
@@ -1584,6 +1600,7 @@ document.addEventListener('keydown', ev => {
   else if (ev.key === 'Backspace') pressKey('del');
 });
 $('#scrim').addEventListener('click', closeSheet);
+$('#scrim').addEventListener('touchmove', ev => ev.preventDefault(), { passive: false });
 
 /* ============================== modo pré-visualização ============================== */
 /* Só é usado fora do Google (ex.: abrir o ficheiro no PC). Dados ficam no navegador. */
