@@ -62,7 +62,12 @@ main{max-width:520px;margin:0 auto;padding:4px 16px 0;display:flex;flex-directio
 .hero::after{content:"";position:absolute;right:-60px;top:-70px;width:220px;height:220px;border-radius:50%;background:radial-gradient(closest-side,rgba(255,255,255,.16),transparent);pointer-events:none}
 .hero.neg{--hero-a:#7a1d14;--hero-b:#c4402f}
 .hero.sim{--hero-a:#3b2a8f;--hero-b:#7656ee}
-.hero.funds{--hero-a:#1b2a5e;--hero-b:#3d5bd9}
+.hero.funds{--hero-a:#1b2a5e;--hero-b:#3d5bd9;min-height:150px;display:flex;flex-direction:column;justify-content:space-between}
+.hero.newfund{background:var(--card);color:var(--accent);box-shadow:none;border:2px dashed color-mix(in srgb,var(--accent) 45%,var(--line));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:150px;cursor:pointer}
+.hero.newfund .plus{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.hero.newfund svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round}
+.hero.newfund b{font-size:16px}
+.hero.newfund .hero-dots i{background:var(--accent)}
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--press);padding:4px;border-radius:14px}
 .seg button{padding:10px;border-radius:11px;font-weight:700;font-size:14px;color:var(--muted)}
 .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
@@ -896,7 +901,9 @@ async function loadFunds(){
   try { const d = await call('getFunds', { year: +S.month.slice(0, 4) }); if (req !== S.seq) return; S.fundsData = d; if (d.auto) S.data = null; render(); autoToast(d.auto); }
   catch (e) { if (!$('#login').hidden) return; toast(e.message); }
 }
-const load = () => S.view === 'month' ? loadMonth() : S.view === 'rec' ? loadRec() : S.view === 'funds' ? loadFunds() : loadYear();
+const isFundView = v => /^fund:|^newfund$/.test(v || '');
+const curFundId = () => S.view.startsWith('fund:') ? S.view.slice(5) : null;
+const load = () => S.view === 'month' ? loadMonth() : S.view === 'rec' ? loadRec() : isFundView(S.view) ? loadFunds() : loadYear();
 
 /* ============================== ecrã de login ============================== */
 function showLogin(expired){
@@ -925,13 +932,15 @@ function render(){
   if (DRAG.on){ DRAG.pending = true; return; }   // não mexe no ecrã a meio de um arrasto
   DRAG.pending = false;
   document.body.classList.toggle('sim', S.view === 'month' && S.sim.on);
-  const inDeck = DECK.includes(S.view);
+  // fundo que deixou de existir (ex.: eliminado) → volta ao cartão "+"
+  if (S.view.startsWith('fund:') && S.fundsData && !S.fundsData.funds.some(f => 'fund:' + f.id === S.view)) S.view = 'newfund';
+  const inDeck = deckViews().includes(S.view);
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === (inDeck ? 'month' : S.view)));
-  $('#title').textContent = S.view === 'month' ? monthLabel(S.month) : S.view === 'rec' ? 'Recorrentes' : S.view === 'funds' ? 'Fundos' : String(S.year);
-  document.querySelectorAll('[data-act="prev"],[data-act="next"]').forEach(b => { b.style.visibility = S.view === 'rec' || S.view === 'funds' ? 'hidden' : ''; });
+  $('#title').textContent = S.view === 'month' ? monthLabel(S.month) : S.view === 'rec' ? 'Recorrentes' : isFundView(S.view) ? 'Fundos' : String(S.year);
+  document.querySelectorAll('[data-act="prev"],[data-act="next"]').forEach(b => { b.style.visibility = S.view === 'rec' || isFundView(S.view) ? 'hidden' : ''; });
   if (S.view === 'month') (S.data && S.data.month === S.month) ? renderMonth() : skeleton();
   else if (S.view === 'rec') S.recData ? renderRec() : skeleton();
-  else if (S.view === 'funds') S.fundsData ? renderFunds() : skeleton();
+  else if (isFundView(S.view)) S.fundsData ? renderFunds() : skeleton();
   else (S.yearData && S.yearData.year === S.year) ? renderYear() : skeleton();
   if (inDeck) buildDeck();
 }
@@ -940,24 +949,25 @@ function render(){
 // O cartão atual fica ao centro, com o anterior à esquerda e o seguinte à direita (dá a volta).
 const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const DECK_GAP = 16;
-const DECK = ['month', 'year', 'funds'];
-const deckSide = d => DECK[(DECK.indexOf(S.view) + d + DECK.length) % DECK.length];   // d: -1 anterior, +1 seguinte
+// Mês, Ano, um cartão por fundo e, no fim, o cartão "+" para criar outro fundo
+const deckViews = () => ['month', 'year', ...(S.fundsData ? S.fundsData.funds.map(f => 'fund:' + f.id) : []), 'newfund'];
+const deckSide = d => { const L = deckViews(), i = Math.max(0, L.indexOf(S.view)); return L[(i + d + L.length) % L.length]; };   // d: -1 anterior, +1 seguinte
 function heroFor(view){
   const box = document.createElement('div');
   if (view === 'month' && S.data && S.data.month === S.month) renderMonth(box);
   else if (view === 'year' && S.yearData && S.yearData.year === +S.month.slice(0, 4)) renderYear(box);
-  else if (view === 'funds' && S.fundsData) renderFunds(box);
+  else if (isFundView(view) && (S.fundsData || view === 'newfund')) renderFunds(box, view);
   let h = box.querySelector('.hero');
   if (!h){
-    const t = view === 'year' ? 'Guardado em ' + S.month.slice(0, 4) : view === 'funds' ? 'Fundos' : monthLabel(S.month);
-    box.innerHTML = `<section class="hero ${view === 'funds' ? 'funds' : ''}"><div class="hero-top"><span class="eyebrow">${t}</span></div><div class="big" style="opacity:.55">···</div></section>`;
+    const t = view === 'year' ? 'Guardado em ' + S.month.slice(0, 4) : isFundView(view) ? 'Fundo' : monthLabel(S.month);
+    box.innerHTML = `<section class="hero"><div class="hero-top"><span class="eyebrow">${t}</span></div><div class="big" style="opacity:.55">···</div></section>`;
     h = box.firstElementChild;
   }
   return h;
 }
 function withDots(h, view){
   h.querySelectorAll('.hero-dots').forEach(x => x.remove());
-  h.insertAdjacentHTML('beforeend', `<div class="hero-dots" aria-hidden="true">${DECK.map(v => `<i class="${v === view ? 'on' : ''}"></i>`).join('')}</div>`);
+  h.insertAdjacentHTML('beforeend', `<div class="hero-dots" aria-hidden="true">${deckViews().map(v => `<i class="${v === view ? 'on' : ''}"></i>`).join('')}</div>`);
   return h;
 }
 function buildDeck(){
@@ -994,7 +1004,7 @@ async function prefetchYear(){
   try {
     if (!S.yearData || S.yearData.year !== yr){ const d = await call('getYear', { year: yr }); if (!S.yearData || S.yearData.year !== yr || S.view !== 'year') S.yearData = d; }
     if (!S.fundsData){ const f = await call('getFunds', { year: yr }); if (!S.fundsData) S.fundsData = f; }
-    if (DECK.includes(S.view)) refreshDeckSides();
+    if (deckViews().includes(S.view)) refreshDeckSides();
   } catch (e) {} finally { prefetching = false; }
 }
 const DRAG = { on:false };
@@ -1010,7 +1020,7 @@ const DRAG = { on:false };
     dk.style.height = (hCur + (hOther - hCur) * p) + 'px';
   };
   view.addEventListener('touchstart', ev => {
-    deck = ev.touches.length === 1 && DECK.includes(S.view) ? ev.target.closest('.deck') : null;
+    deck = ev.touches.length === 1 && deckViews().includes(S.view) ? ev.target.closest('.deck') : null;
     if (!deck) return;
     track = deck.firstElementChild; w = track.clientWidth;
     hCur = track.children[1].offsetHeight; hL = track.children[0].offsetHeight; hR = track.children[2].offsetHeight;
@@ -1374,32 +1384,30 @@ async function saveSettings(btn){
 
 /* ---------- fundos (dinheiro à parte: não conta para o mês nem para o objetivo) ---------- */
 const IN_ICON = '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 19h16"/>';
-function renderFunds(target){
-  const d = S.fundsData, funds = d.funds, yr = d.year;
-  const total = funds.reduce((s, f) => s + f.balance, 0), inY = funds.reduce((s, f) => s + f.in, 0), outY = funds.reduce((s, f) => s + f.out, 0);
-  const fundName = id => (funds.find(f => f.id === id) || {}).name || '';
-  const hero = funds.length ? `<section class="hero funds">
-      <div class="hero-top"><span class="eyebrow">Fundos</span><button class="chip-w" data-act="newFund">Novo fundo</button></div>
-      <div class="hero-main"><div style="min-width:0"><div class="big num">${eurBig(total)}</div><div class="hero-sub">${funds.length > 1 ? 'Saldo total' : 'Saldo · ' + esc(funds[0].name)}</div></div></div>
-      <div class="stats"><div class="stat"><small>Entrou em ${yr}</small><b class="num">${eur(inY)}</b></div><div class="stat"><small>Saiu em ${yr}</small><b class="num">${eur(outY)}</b></div></div>
-    </section>`
-    : `<section class="hero funds"><div class="hero-top"><span class="eyebrow">Fundos</span></div>
-      <div class="big" style="font-size:24px;margin-top:8px;white-space:normal">Dinheiro à parte</div>
-      <div class="hero-sub">Part-time, férias, carro… fora do orçamento do mês.</div>
-      <div class="stats"><button class="stat tap" data-act="newFund" style="text-align:left;color:#fff"><small>Começar</small><b>Criar fundo →</b></button></div></section>`;
-  const list = S.fundFilter ? d.moves.filter(m => m.fund === S.fundFilter) : d.moves;
+// cada fundo é um cartão (na cor do fundo) com o saldo disponível; o último cartão é o "+" para criar outro
+function renderFunds(target, view){
+  view = view || S.view;
+  const out = target || $('#view');
+  if (view === 'newfund'){
+    out.innerHTML = `<section class="hero newfund" data-act="newFund" role="button" aria-label="Criar novo fundo">
+      <div class="plus"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div><b>Novo fundo</b></section>`;
+    return;
+  }
+  const d = S.fundsData, f = d.funds.find(x => 'fund:' + x.id === view);
+  if (!f){ out.innerHTML = ''; return; }
+  const list = d.moves.filter(m => m.fund === f.id);
   const groups = {}; list.forEach(m => { const k = m.date.slice(0, 7); (groups[k] = groups[k] || []).push(m); });
   const movesHtml = Object.keys(groups).sort().reverse().map(k => `<div class="group"><div class="day">${monthLabel(k)}</div><div class="txs">${groups[k].map(m => `
       <button class="tx" data-move="${esc(m.id)}">${m.cents > 0 ? `<i class="ic" style="--c:var(--accent)"><svg viewBox="0 0 24 24">${IN_ICON}</svg></i>` : icon(m.category)}
-        <div class="tx-main"><b>${esc(m.desc)}</b><small>${funds.length > 1 ? esc(fundName(m.fund)) + ' · ' : ''}${fmtDate(m.date)}</small></div>
+        <div class="tx-main"><b>${esc(m.desc)}</b><small>${fmtDate(m.date)}</small></div>
         <span class="amt num ${m.cents > 0 ? 'in' : ''}">${m.cents > 0 ? '+' : '−'}${eur(Math.abs(m.cents))}</span></button>`).join('')}</div></div>`).join('');
-  (target || $('#view')).innerHTML = `
-  ${hero}
-  ${funds.length ? `<section class="card">${funds.map(f => `
-    <button class="mrow ${S.fundFilter && S.fundFilter !== f.id ? 'muted' : ''}" data-fund="${esc(f.id)}"><span><b><i class="fund-dot" style="--c:${f.color}"></i>${esc(f.name)}</b><small class="s num">entrou ${eur(f.in)} · saiu ${eur(f.out)}</small></span>
-      <span class="r num"><b class="${f.balance < 0 ? 'neg' : ''}">${eur(f.balance)}</b><small class="s">saldo</small></span></button>`).join('')}</section>` : ''}
-  ${funds.length ? `<div class="sh"><h2>${S.fundFilter ? esc(fundName(S.fundFilter)) : 'Movimentos'}</h2><span>${S.fundFilter ? `<button data-act="clearFund" style="color:var(--accent);font-weight:700">Ver todos</button>` : `${list.length} ${list.length === 1 ? 'movimento' : 'movimentos'}`}</span></div>
-    ${movesHtml || `<div class="empty">${icon('Outros')}<b>Sem movimentos</b><p>Regista o que entra e o que sai deste dinheiro.</p><button class="btn primary inline" data-act="add">Novo movimento</button></div>`}` : ''}`;
+  out.innerHTML = `
+  <section class="hero funds" style="--hero-a:color-mix(in srgb, ${f.color} 55%, #0b1020);--hero-b:${f.color}">
+    <div class="hero-top"><span class="eyebrow">${esc(f.name)}</span><button class="chip-w" data-act="editFund">Editar</button></div>
+    <div class="hero-main"><div style="min-width:0"><div class="big num">${eurBig(f.balance)}</div><div class="hero-sub">Saldo disponível</div></div></div>
+  </section>
+  <div class="sh"><h2>Movimentos</h2><span>${list.length} ${list.length === 1 ? 'movimento' : 'movimentos'}</span></div>
+  ${movesHtml || `<div class="empty">${icon('Outros')}<b>Sem movimentos</b><button class="btn primary inline" data-act="add">Novo movimento</button></div>`}`;
 }
 function openFund(f){
   const isNew = !f;
@@ -1416,20 +1424,23 @@ function openFund(f){
 async function saveFund(btn){
   const name = $('#uName').value.trim(); if (!name) return toast('Nome em falta.');
   btn.disabled = true;
-  try { await call('saveFund', { id:F.id, name, color:F.color }); closeSheet(); toast('Fundo guardado'); S.recData = null; loadFunds(); }
-  catch (e) { btn.disabled = false; toast(e.message); }
+  try {
+    const r = await call('saveFund', { id:F.id, name, color:F.color }); closeSheet(); toast('Fundo guardado'); S.recData = null;
+    S.view = 'fund:' + r.id;   // abre logo o cartão do fundo
+    await loadFunds();
+  } catch (e) { btn.disabled = false; toast(e.message); }
 }
 async function delFund(btn){
   if (btn.dataset.sure !== '1'){ btn.dataset.sure = '1'; btn.textContent = 'Toca outra vez — os movimentos também são apagados'; return; }
   btn.disabled = true;
-  try { await call('deleteFund', { id:F.id }); if (S.fundFilter === F.id) S.fundFilter = null; closeSheet(); toast('Fundo eliminado'); S.recData = null; loadFunds(); }
+  try { await call('deleteFund', { id:F.id }); closeSheet(); toast('Fundo eliminado'); S.recData = null; loadFunds(); }
   catch (e) { btn.disabled = false; toast(e.message); }
 }
 function openMove(m){
   const funds = S.fundsData ? S.fundsData.funds : [];
   if (!funds.length){ toast('Cria primeiro um fundo.'); return openFund(null); }
   const isNew = !m;
-  m = m || { type:'out', fund: S.fundFilter || funds[0].id, desc:'', cents:0, category:'Outros', date: TODAY };
+  m = m || { type:'out', fund: curFundId() || funds[0].id, desc:'', cents:0, category:'Outros', date: TODAY };
   F = { mode:'move', id: m.id || null, type: m.cents > 0 ? 'in' : (m.type || 'out'), fund: m.fund, cat: m.category || 'Outros' };
   openSheet(`
     <div class="sheet-h"><button data-act="close">Cancelar</button><b>${isNew ? 'Novo movimento' : 'Editar movimento'}</b><button data-act="saveMove" style="color:var(--accent);font-weight:700">Guardar</button></div>
@@ -1759,7 +1770,7 @@ document.addEventListener('click', ev => {
     case 'next': shift(1); break;
     case 'settings': openSettings(); break;
     case 'close': closeSheet(); break;
-    case 'add': if (S.view === 'rec'){ openRec(null); break; } if (S.view === 'funds'){ openMove(null); break; } if (S.view === 'year'){ S.view = 'month'; render(); if (!S.data || S.data.month !== S.month) loadMonth(); } openForm('add'); break;
+    case 'add': if (S.view === 'rec'){ openRec(null); break; } if (S.view === 'newfund'){ openFund(null); break; } if (isFundView(S.view)){ openMove(null); break; } if (S.view === 'year'){ S.view = 'month'; render(); if (!S.data || S.data.month !== S.month) loadMonth(); } openForm('add'); break;
     case 'submit': submitForm(el); break;
     case 'del': deleteExp(el); break;
     case 'saveSettings': saveSettings(el); break;
@@ -1779,7 +1790,7 @@ document.addEventListener('click', ev => {
     case 'delFund': delFund(el); break;
     case 'saveMove': saveMove(el); break;
     case 'delMove': delMove(el); break;
-    case 'clearFund': S.fundFilter = null; render(); break;
+    case 'editFund': { const f = S.fundsData.funds.find(x => x.id === curFundId()); if (f) openFund(f); break; }
     case 'saveRec': saveRec(el); break;
     case 'delRec': delRec(el); break;
     case 'clearFilter': S.filter = null; render(); break;
