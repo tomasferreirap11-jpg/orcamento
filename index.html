@@ -1118,7 +1118,6 @@ async function saveSettings(btn){
 function renderRec(){
   const items = S.recData.items, act = items.filter(r => r.active);
   const total = act.reduce((s, r) => s + r.cents, 0);
-  const nm = MESES[+nextMonth(TODAY_MONTH).slice(5) - 1].toLowerCase();
   const row = r => `
       <button class="tx ${r.active ? '' : 'off'}" data-rec="${esc(r.id)}">${icon(r.category)}
         <div class="tx-main"><b>${esc(r.desc)}</b><small>${esc(r.category)}${r.active ? '' : ' · em pausa'}</small></div>
@@ -1126,9 +1125,7 @@ function renderRec(){
   $('#view').innerHTML = `
   <section class="card">
     <div class="card-h"><h3>Total por mês</h3><span class="hint" style="margin:0">${act.length} ${act.length === 1 ? 'despesa' : 'despesas'}</span></div>
-    <div class="num" style="font-size:34px;font-weight:800;line-height:1.1;letter-spacing:-.02em;margin-top:6px">${eur(total)}</div>
-    <p class="hint" style="margin:6px 0 0">Lançadas automaticamente no dia 1 de cada mês. Próximo: 1 de ${nm}.</p>
-  </section>
+    <div class="num" style="font-size:34px;font-weight:800;line-height:1.1;letter-spacing:-.02em;margin-top:6px">${eur(total)}</div>  </section>
   ${items.length ? `<div class="group"><div class="txs">${act.map(row).join('')}${items.filter(r => !r.active).map(row).join('')}</div></div>`
     : `<div class="empty">${icon('Subscrições')}<b>Sem despesas recorrentes</b><p>Ginásio, Apple, Netflix… adiciona as que pagas todos os meses.</p></div>`}
   <button class="btn primary inline" data-act="addRec" style="margin:4px auto 0;display:block">Adicionar recorrente</button>`;
@@ -1145,8 +1142,7 @@ function openRec(r){
     <input class="field num" id="rVal" inputmode="decimal" value="${r.cents ? num(r.cents) : ''}" autocomplete="off">
     <span class="lbl">Categoria</span>
     <div class="cats">${CATS.map(c => `<button class="cat-pick ${c === F.cat ? 'on' : ''}" data-pick="${c}" style="--c:${CAT[c].c}">${icon(c, 'sm')}${c}</button>`).join('')}</div>
-    ${isNew ? `<label class="check"><input type="checkbox" id="rNow"> Lançar também em ${MESES[+TODAY_MONTH.slice(5) - 1].toLowerCase()}</label>`
-      : `<label class="check"><input type="checkbox" id="rAct"${r.active ? ' checked' : ''}> Ativa (lançar todos os meses)</label>`}
+    ${isNew ? '' : `<label class="check"><input type="checkbox" id="rAct"${r.active ? ' checked' : ''}> Ativa (lançar todos os meses)</label>`}
     ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad)" data-act="delRec">Eliminar</button>`}`);
 }
 async function saveRec(btn){
