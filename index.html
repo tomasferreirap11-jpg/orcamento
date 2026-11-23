@@ -309,12 +309,14 @@ const CAT = {
   'Saúde':       { c:'#e04b5a', i:'<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>' },
   'Subscrições': { c:'#0ea5a4', i:'<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/>' },
   'Taxas':       { c:'#64748b', i:'<path d="M18 6L6 18"/><circle cx="7.5" cy="7.5" r="2.5"/><circle cx="16.5" cy="16.5" r="2.5"/>' },
+  'Combustível': { c:'#c48a0a', i:'<path d="M4 20V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15"/><path d="M3 20h12"/><path d="M7 7h4"/><path d="M14 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V8l-3-3"/>' },
   'Transportes': { c:'#2f9e5b', i:'<path d="M5 17V12l2-5h10l2 5v5"/><path d="M3 17h18"/><circle cx="8" cy="17.5" r="1.8"/><circle cx="16" cy="17.5" r="1.8"/><path d="M5 12h14"/>' },
   'Outros':      { c:'#8a8f8c', i:'<circle cx="6" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="18" cy="12" r="1.6" fill="currentColor"/>' }
 };
 const CATS = Object.keys(CAT);
 const KW = [
-  [/via ?verde|portage|combust|galp|repsol|\bbp\b|uber|bolt|\bcp\b|metro|estaciona|parque/i, 'Transportes'],
+  [/g[aá]s[oó]leo|gasolina|combust[ií]vel/i, 'Combustível'],
+  [/via ?verde|portage|galp|repsol|\bbp\b|uber|bolt|\bcp\b|metro|estaciona|parque/i, 'Transportes'],
   [/netflix|spotify|apple|icloud|claude|chatgpt|disney|hbo|max\b|prime video|gin[aá]sio|youtube/i, 'Subscrições'],
   [/farm[aá]cia|m[eé]dic|cl[ií]nica|dentista|hospital|an[aá]lises/i, 'Saúde'],
   [/banco|taxa|imposto|mb ?way|comiss/i, 'Taxas'],
