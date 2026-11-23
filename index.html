@@ -536,16 +536,22 @@ async function regCall(action, extra){
   if (d.error) throw new Error(d.error);
   return d;
 }
-async function regHello(){
-  if (DEMO) { REG.admin = true; return; }
-  const key = 'orc.blocked.' + ACCOUNT.email;
-  try {
-    // no máximo 6 s: se o registo não responder, a app abre na mesma (exceto se a conta já estava bloqueada)
-    const d = await Promise.race([regCall('hello', { name: ACCOUNT.name || LS.get('orc.name') || '' }), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))]);
-    REG.admin = !!d.admin; REG.blocked = !!d.blocked;
-    if (REG.blocked) LS.set(key, 1); else LS.del(key);
-  } catch (e) { REG.blocked = !!LS.get(key); }
+// O último estado conhecido (admin / bloqueado) fica guardado no telemóvel: a app abre logo com ele
+// e a resposta do registo, mesmo que chegue tarde, atualiza-o.
+function regApply(d){
+  const e = ACCOUNT.email;
+  REG.admin = !!d.admin; REG.blocked = !!d.blocked;
+  if (REG.admin) LS.set('orc.admin.' + e, 1); else LS.del('orc.admin.' + e);
+  if (REG.blocked) LS.set('orc.blocked.' + e, 1); else LS.del('orc.blocked.' + e);
   if (REG.blocked) showBlocked();
+}
+function regHello(){
+  if (DEMO) { REG.admin = true; return Promise.resolve(); }
+  const e = ACCOUNT.email;
+  REG.admin = !!LS.get('orc.admin.' + e); REG.blocked = !!LS.get('orc.blocked.' + e);
+  const req = regCall('hello', { name: ACCOUNT.name || LS.get('orc.name') || '' }).then(regApply).catch(() => {});
+  // para abrir a app espera no máximo 5 s; se o registo demorar mais, a resposta é aplicada quando chegar
+  return Promise.race([req, new Promise(res => setTimeout(res, 5000))]).then(() => { if (REG.blocked) showBlocked(); });
 }
 function showBlocked(){
   S.data = null; S.yearData = null; S.fundsData = null; S.recData = null;
@@ -557,7 +563,7 @@ function showBlocked(){
 }
 function signOut(){
   if (TOKEN && window.google && google.accounts && google.accounts.oauth2) { try { google.accounts.oauth2.revoke(TOKEN.t, () => {}); } catch (e) {} }
-  TOKEN = null; SS = null; LS.del('orc.token'); LS.del('orc.email'); LS.del('orc.name');
+  TOKEN = null; SS = null; LS.del('orc.token'); LS.del('orc.email'); LS.del('orc.name'); LS.del('orc.ssmeta.' + ACCOUNT.email);
   REG.admin = false; REG.blocked = false; S.fundsData = null; S.recData = null;
   ACCOUNT.email = '';
   S.data = null; S.yearData = null;
@@ -583,8 +589,12 @@ const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
 let SS = null;    // { id, sheetIds: { Despesas: n, ... } }
 
+const SHEET_NAMES = ['Despesas', 'Meses', 'Objetivos', 'Config', 'Extras', 'Recorrentes', 'Categorias', 'Fundos', 'Movimentos'];
 async function getSS(){
   if (SS) return SS;
+  // atalho: a localização da folha e das suas páginas fica guardada no telemóvel (poupa um pedido ao Google ao abrir)
+  const meta = LS.get('orc.ssmeta.' + ACCOUNT.email);
+  if (meta && meta.id && meta.sheetIds && SHEET_NAMES.every(n => meta.sheetIds[n] != null)) { SS = meta; return SS; }
   const key = 'orc.ss.' + ACCOUNT.email;
   let id = LS.get(key);
   if (!id) {
@@ -597,7 +607,7 @@ async function getSS(){
     catch (e) { if (e.status === 404 || e.status === 403) { id = null; LS.del(key); } else throw e; }
   }
   if (!SS) SS = await createSS();
-  LS.set(key, SS.id);
+  LS.set(key, SS.id); LS.set('orc.ssmeta.' + ACCOUNT.email, SS);
   return SS;
 }
 async function loadMeta(id){
@@ -650,10 +660,15 @@ async function createSS(){
 }
 
 const toStr = v => v == null ? '' : String(v);
-async function readAll(){
+async function readAll(retry){
   const ss = await getSS();
   const ranges = ['Despesas!A2:F', 'Meses!A2:C', 'Objetivos!A2:B', 'Config!A2:B', 'Extras!A2:F', 'Recorrentes!A2:J', 'Categorias!A2:D', 'Fundos!A2:C', 'Movimentos!A2:F'].map(r => 'ranges=' + encodeURIComponent(r)).join('&');
-  const r = await gfetch(`${SHEETS_API}/${ss.id}/values:batchGet?${ranges}&valueRenderOption=UNFORMATTED_VALUE`);
+  let r;
+  try { r = await gfetch(`${SHEETS_API}/${ss.id}/values:batchGet?${ranges}&valueRenderOption=UNFORMATTED_VALUE`); }
+  catch (e) {
+    if (!retry && (e.status === 400 || e.status === 403 || e.status === 404)) { SS = null; LS.del('orc.ssmeta.' + ACCOUNT.email); return readAll(true); }
+    throw e;
+  }
   const v = i => (r.valueRanges[i] && r.valueRanges[i].values) || [];
   const cats = v(6).map((x, i) => ({ row: i + 2, name: cleanDesc(x[0]).slice(0, 30), color: toStr(x[1]), icon: toStr(x[2]), words: toStr(x[3]).split(',').map(w => w.trim()).filter(Boolean) })).filter(c => c.name);
   applyCustomCats(cats);
@@ -949,7 +964,7 @@ const autoToast = n => { if (n) toast(n === 1 ? '1 despesa recorrente adicionada
 
 async function loadMonth(){
   const req = ++S.seq;
-  try { const d = await call('getMonth', { month:S.month }); if (req !== S.seq) return; S.data = d; if (d.appColor && d.appColor !== APP_COLOR) applyAppColor(d.appColor, true); render(); autoToast(d.auto); setTimeout(prefetchYear, 600); }
+  try { const d = await call('getMonth', { month:S.month }); if (S.gate) await S.gate; if (REG.blocked || req !== S.seq) return; S.data = d; if (d.appColor && d.appColor !== APP_COLOR) applyAppColor(d.appColor, true); render(); autoToast(d.auto); setTimeout(prefetchYear, 600); }
   catch (e) { if (!$('#login').hidden) return; toast(e.message); }
 }
 async function loadRec(){
@@ -985,12 +1000,12 @@ async function doLogin(choose){
   const btn = $('#loginBtn'); btn.disabled = true;
   try {
     await signIn(choose);
-    REG.blocked = false; REG.admin = false;
-    await regHello();
-    if (REG.blocked) return;
-    hideLogin(); S.data = null; S.yearData = null; render();
+    S.data = null; S.yearData = null; S.fundsData = null; S.recData = null;
     $('#loginMsg').textContent = 'A preparar a tua folha…';
-    await load();
+    S.gate = regHello(); load();   // em paralelo: confirmar o acesso e ler a folha
+    await S.gate;
+    if (REG.blocked) return;
+    hideLogin(); render();
   } catch (e) {
     $('#loginErr').textContent = e.message; $('#loginErr').hidden = false;
   } finally { btn.disabled = false; }
@@ -2144,7 +2159,7 @@ render();
 if (DEMO) { ACCOUNT.email = 'pré-visualização'; regHello(); loadMonth(); }
 else if (tokenValid() && ACCOUNT.email) {
   if (LS.get('orc.blocked.' + ACCOUNT.email)) { REG.blocked = true; showBlocked(); }   // conta já bloqueada: nem chega a mostrar a app
-  regHello().then(() => { if (!REG.blocked) loadMonth(); });
+  S.gate = regHello(); loadMonth();
   initAuth().catch(() => {});
 }
 else { showLogin(false); initAuth().catch(e => { $('#loginErr').textContent = e.message; $('#loginErr').hidden = false; }); }
