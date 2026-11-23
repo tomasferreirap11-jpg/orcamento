@@ -168,6 +168,18 @@ main{max-width:520px;margin:0 auto;padding:4px 16px 0;display:flex;flex-directio
 .mrow .r{text-align:right}
 .mrow .r small{display:block;font-size:12px;font-weight:600}
 .pos{color:var(--accent)} .neg{color:var(--bad)}
+.mrow small.s{display:block;font-size:12px;color:var(--muted);font-weight:500;margin-top:1px}
+.mrow .r b{font-size:15px}
+.mrow.cur > span:first-child > b::after{content:"em curso";margin-left:8px;font-size:11px;font-weight:700;color:var(--accent);background:var(--soft, rgba(29,117,83,.12));padding:2px 7px;border-radius:99px;vertical-align:1px}
+.mrow.muted{opacity:.6}
+.card-h{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.card-h button{color:var(--accent);font-weight:700;font-size:14px}
+.brk{margin-top:6px}
+.brk div{display:flex;justify-content:space-between;padding:10px 4px;border-top:1px solid var(--line);font-size:15px}
+.brk div:first-child{border-top:0}
+.brk span{color:var(--muted)}
+.brk .tot{font-weight:700}
+.brk .tot span{color:var(--ink)}
 
 /* skeleton */
 .sk{border-radius:22px;background:linear-gradient(90deg,var(--line) 25%,var(--press) 50%,var(--line) 75%);background-size:200% 100%;animation:sk 1.2s infinite linear}
@@ -325,6 +337,8 @@ function eurBig(c){
 const num = c => eur(c).replace(' €', '').replace('−', '-');
 const pct = bp => (bp / 100).toFixed(2).replace('.', ',') + '%';
 const monthLabel = m => MESES[+m.slice(5) - 1] + ' ' + m.slice(0, 4);
+const fmtDate = d => +d.slice(8, 10) + ' ' + MES_C[+d.slice(5, 7) - 1] + ' ' + d.slice(0, 4);
+const amountOrZero = s => { s = String(s).trim(); return s === '' || /^0+([.,]0*)?\s*€?$/.test(s) ? 0 : parseAmount(s); };
 
 function parseAmount(s){
   s = String(s).replace(/€/g, '').replace(/\s/g, '').replace(/[,.]$/, '');
@@ -466,8 +480,20 @@ async function loadMeta(id){
   const m = await gfetch(`${SHEETS_API}/${id}?fields=sheets.properties(sheetId,title)`);
   const sheetIds = {}; m.sheets.forEach(s => { sheetIds[s.properties.title] = s.properties.sheetId; });
   if (sheetIds.Despesas == null) { const e = new Error('Folha inválida'); e.status = 404; throw e; }
+  if (sheetIds.Extras == null) await addExtrasSheet(id, sheetIds);
   return { id, sheetIds };
 }
+// folhas antigas: acrescenta a folha "Extras" (subsídios) e a coluna do salário em "Meses"
+async function addExtrasSheet(id, sheetIds){
+  const r = await gfetch(`${SHEETS_API}/${id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [
+    { addSheet: { properties: { title: 'Extras', gridProperties: { frozenRowCount: 1 } } } }
+  ] }) });
+  sheetIds.Extras = r.replies[0].addSheet.properties.sheetId;
+  await gfetch(`${SHEETS_API}/${id}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data: [
+    { range: 'Extras!A1:F1', values: [EXTRAS_HEAD] }, { range: 'Meses!C1', values: [['Salário (€)']] }
+  ] }) });
+}
+const EXTRAS_HEAD = ['ID', 'Ano', 'Data', 'Descrição', 'Valor (€)', 'Gasto (€)'];
 async function createSS(){
   const head = cols => ({ values: cols.map(c => ({ userEnteredValue: { stringValue: c }, userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: .886, green: .941, blue: .91 } } })) });
   const sheet = (title, id, cols, extra) => ({ properties: { title, sheetId: id, gridProperties: { frozenRowCount: 1 } }, data: [{ rowData: [head(cols)].concat(extra || []) }] });
@@ -475,36 +501,39 @@ async function createSS(){
     properties: { title: SS_TITLE, locale: 'pt_PT', timeZone: 'Europe/Lisbon' },
     sheets: [
       sheet('Despesas', 0, ['ID', 'Data', 'Mês', 'Descrição', 'Valor (€)', 'Categoria', 'Criado em']),
-      sheet('Meses', 1, ['Mês', 'Orçamento (€)']),
+      sheet('Meses', 1, ['Mês', 'Orçamento (€)', 'Salário (€)']),
+      sheet('Extras', 4, EXTRAS_HEAD),
       sheet('Objetivos', 2, ['Ano', 'Meta de poupança (€)']),
       sheet('Config', 3, ['Chave', 'Valor'], [{ values: [{ userEnteredValue: { stringValue: 'orcamentoPadrao' } }, { userEnteredValue: { numberValue: 400 } }] }])
     ]
   }) });
   const money = (sheetId, c) => ({ repeatCell: { range: { sheetId, startRowIndex: 1, startColumnIndex: c, endColumnIndex: c + 1 }, cell: { userEnteredFormat: { numberFormat: { type: 'CURRENCY', pattern: '#,##0.00 "€"' } } }, fields: 'userEnteredFormat.numberFormat' } });
   await gfetch(`${SHEETS_API}/${ss.spreadsheetId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [
-    money(0, 4), money(1, 1), money(2, 1),
+    money(0, 4), money(1, 1), money(1, 2), money(2, 1), money(4, 4), money(4, 5),
     { updateDimensionProperties: { range: { sheetId: 0, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 }, properties: { hiddenByUser: true }, fields: 'hiddenByUser' } },
     { updateDimensionProperties: { range: { sheetId: 0, dimension: 'COLUMNS', startIndex: 3, endIndex: 4 }, properties: { pixelSize: 220 }, fields: 'pixelSize' } }
   ] }) });
   await gfetch(`${DRIVE_API}/${ss.spreadsheetId}`, { method: 'PATCH', body: JSON.stringify({ appProperties: { orcamentoApp: '1' } }) });
-  return { id: ss.spreadsheetId, sheetIds: { Despesas: 0, Meses: 1, Objetivos: 2, Config: 3 } };
+  return { id: ss.spreadsheetId, sheetIds: { Despesas: 0, Meses: 1, Objetivos: 2, Config: 3, Extras: 4 } };
 }
 
 const toStr = v => v == null ? '' : String(v);
 async function readAll(){
   const ss = await getSS();
-  const ranges = ['Despesas!A2:F', 'Meses!A2:B', 'Objetivos!A2:B', 'Config!A2:B'].map(r => 'ranges=' + encodeURIComponent(r)).join('&');
+  const ranges = ['Despesas!A2:F', 'Meses!A2:C', 'Objetivos!A2:B', 'Config!A2:B', 'Extras!A2:F'].map(r => 'ranges=' + encodeURIComponent(r)).join('&');
   const r = await gfetch(`${SHEETS_API}/${ss.id}/values:batchGet?${ranges}&valueRenderOption=UNFORMATTED_VALUE`);
   const v = i => (r.valueRanges[i] && r.valueRanges[i].values) || [];
   const exp = v(0).map((x, i) => ({ row: i + 2, id: toStr(x[0]), date: toStr(x[1]), month: toStr(x[2]), desc: toStr(x[3]), cents: Math.round(Number(x[4]) * 100), category: CAT[x[5]] ? x[5] : 'Outros' }))
     .filter(e => e.id && /^\d{4}-\d{2}$/.test(e.month) && isFinite(e.cents));
-  const months = {}; v(1).forEach((x, i) => { if (x[0] !== '' && x[0] != null) months[toStr(x[0])] = { row: i + 2, budget: Math.round(Number(x[1]) * 100) }; });
+  const cents = x => x === '' || x == null || !isFinite(Number(x)) ? null : Math.round(Number(x) * 100);
+  const months = {}; v(1).forEach((x, i) => { if (x[0] !== '' && x[0] != null) months[toStr(x[0])] = { row: i + 2, budget: Math.round(Number(x[1]) * 100), salary: cents(x[2]) }; });
+  const extras = v(4).map((x, i) => ({ row: i + 2, id: toStr(x[0]), year: toStr(x[1]), date: toStr(x[2]), desc: toStr(x[3]), cents: cents(x[4]) || 0, spent: cents(x[5]) || 0 })).filter(e => e.id);
   const goals = {}; v(2).forEach((x, i) => { if (x[0] !== '' && x[0] != null) goals[toStr(x[0])] = { row: i + 2, goal: Math.round(Number(x[1]) * 100) }; });
   const cfg = {}; v(3).forEach((x, i) => { cfg[toStr(x[0])] = { row: i + 2, value: x[1] }; });
   const dv = cfg.orcamentoPadrao ? Number(cfg.orcamentoPadrao.value) : 400;
   // próxima linha livre de cada folha (escrevemos sempre em posições exatas; o "append" do Google pode desalinhar colunas)
-  const next = { Despesas: v(0).length + 2, Meses: v(1).length + 2, Objetivos: v(2).length + 2, Config: v(3).length + 2 };
-  return { ss, exp, months, goals, cfg, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
+  const next = { Despesas: v(0).length + 2, Meses: v(1).length + 2, Objetivos: v(2).length + 2, Config: v(3).length + 2, Extras: v(4).length + 2 };
+  return { ss, exp, months, goals, cfg, extras, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
 }
 const putValues = (ss, range, values) => gfetch(`${SHEETS_API}/${ss.id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { method: 'PUT', body: JSON.stringify({ values }) });
 // escreve linhas novas a partir da próxima linha livre, nas colunas exatas (A…)
@@ -573,8 +602,34 @@ async function api(action, p){
     case 'getYear': {
       const ex = D.exp.filter(e => e.month.slice(0, 4) === String(p.year)), cats = {}, months = [];
       ex.forEach(e => { cats[e.category] = (cats[e.category] || 0) + e.cents; });
-      for (let i = 1; i <= 12; i++){ const m = p.year + '-' + pad(i); months.push({ month: m, budget: D.months[m] ? D.months[m].budget : D.def, spent: ex.filter(e => e.month === m).reduce((s, e) => s + e.cents, 0), hasData: !!D.months[m] }); }
-      return { year: p.year, months, categories: cats, goal: D.goals[String(p.year)] ? D.goals[String(p.year)].goal : 0, defaultBudget: D.def, today: TODAY_MONTH };
+      for (let i = 1; i <= 12; i++){ const m = p.year + '-' + pad(i); months.push({ month: m, budget: D.months[m] ? D.months[m].budget : D.def, salary: D.months[m] ? D.months[m].salary : null, spent: ex.filter(e => e.month === m).reduce((s, e) => s + e.cents, 0), hasData: !!D.months[m] }); }
+      const extras = D.extras.filter(e => e.year === String(p.year)).map(({ row, ...e }) => e);
+      return { year: p.year, months, extras, categories: cats, goal: D.goals[String(p.year)] ? D.goals[String(p.year)].goal : 0, defaultBudget: D.def, today: TODAY_MONTH };
+    }
+    case 'setSalary': {
+      const val = p.cents == null ? '' : checkCents(p.cents) / 100, m = D.months[p.month];
+      if (m) await putValues(ss, `Meses!C${m.row}`, [[val]]);
+      else await appendRows(D, 'Meses', [[p.month, D.def / 100, val]]);
+      return {};
+    }
+    case 'saveExtra': {
+      const desc = cleanDesc(p.desc); if (!desc) throw new Error('Descrição em falta.');
+      const cents = checkCents(p.cents), spent = Math.max(0, Math.round(Number(p.spent) || 0));
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(p.date) ? p.date : '';
+      const year = date ? date.slice(0, 4) : String(p.year);
+      if (p.id){
+        const e = D.extras.find(x => x.id === p.id); if (!e) throw new Error('Registo não encontrado — atualiza a app.');
+        await putValues(ss, `Extras!B${e.row}:F${e.row}`, [[year, date, desc, cents / 100, spent / 100]]);
+        return { id: p.id };
+      }
+      const id = uuid();
+      await appendRows(D, 'Extras', [[id, year, date, desc, cents / 100, spent / 100]]);
+      return { id };
+    }
+    case 'deleteExtra': {
+      const e = D.extras.find(x => x.id === p.id); if (!e) throw new Error('Registo não encontrado — atualiza a app.');
+      await gfetch(`${SHEETS_API}/${ss.id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId: ss.sheetIds.Extras, dimension: 'ROWS', startIndex: e.row - 1, endIndex: e.row } } }] }) });
+      return { id: e.id };
     }
   }
   throw new Error('Ação desconhecida.');
@@ -708,42 +763,57 @@ function renderMonth(){
   `;
 }
 
+// Contas do ano, como na tabela "Geral": Guardar = salário − orçamento; Sobrou = orçamento − gasto;
+// Guardado = Guardar + Sobrou; Total = soma dos meses fechados. Subsídios (valor − gasto) somam ao total.
+function ledger(y){
+  const today = y.today, nextM = (() => { const [a, b] = today.split('-').map(Number); const d = new Date(a, b, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); })();
+  let total = 0; const rows = [];
+  y.months.forEach(m => {
+    const closed = m.month < today, cur = m.month === today;
+    const show = (closed && (m.hasData || m.salary != null)) || cur || m.salary != null || m.month === nextM;
+    if (!show) return;
+    const guardar = m.salary != null ? m.salary - m.budget : 0;
+    const sobrou = m.month > today ? 0 : m.budget - m.spent;
+    const guardado = guardar + sobrou;
+    if (closed) total += guardado;
+    rows.push(Object.assign({}, m, { closed, cur, future: m.month > today, guardar, sobrou, guardado, total: closed ? total : null }));
+  });
+  const extras = y.extras || [];
+  const extraNet = extras.reduce((s, e) => s + e.cents - e.spent, 0);
+  const monthsLeft = y.months.filter(m => m.month >= today).length;
+  return { rows, closedTotal: total, extraNet, saved: total + extraNet, cur: rows.find(r => r.cur), monthsLeft };
+}
+
 function renderYear(){
   const y = S.yearData, today = y.today, goal = y.goal;
-  let closed = 0, spentYear = 0, withData = 0, remaining = 0, cur = null;
-  y.months.forEach(m => {
-    spentYear += m.spent;
-    if (m.hasData && m.month <= today) withData++;
-    if (m.month < today){ if (m.hasData) closed += m.budget - m.spent; } else remaining++;
-    if (m.month === today) cur = m;
-  });
-  const saved = closed + (cur && cur.hasData ? cur.budget - cur.spent : 0);
+  let spentYear = 0, withData = 0;
+  y.months.forEach(m => { spentYear += m.spent; if (m.hasData && m.month <= today) withData++; });
   const avg = withData ? Math.round(spentYear / withData) : 0;
+  const L = ledger(y), saved = L.saved, cur = L.cur;
 
   let hero, advice = '';
   if (goal){
     const bp = Math.round(Math.max(0, saved) * 10000 / goal);
-    const missing = goal - closed;
-    const need = remaining > 0 && missing > 0 ? Math.ceil(missing / remaining) : 0;
-    const cap = y.defaultBudget - need;
+    const missing = goal - saved;
+    const need = L.monthsLeft > 0 && missing > 0 ? Math.ceil(missing / L.monthsLeft) : 0;
     hero = `<section class="hero ${saved < 0 ? 'neg' : ''}">
-      <div class="hero-top"><span class="eyebrow">Poupado em ${y.year}</span><button class="chip-w" data-act="settings">Editar objetivo</button></div>
+      <div class="hero-top"><span class="eyebrow">Guardado em ${y.year}</span><button class="chip-w" data-act="settings">Editar objetivo</button></div>
       <div class="hero-main"><div style="min-width:0"><div class="big num">${eurBig(saved)}</div>
-        <div class="hero-sub num">${saved >= goal ? 'Objetivo cumprido' : 'Faltam ' + eur(goal - saved)}</div></div>
+        <div class="hero-sub num">${missing <= 0 ? 'Objetivo cumprido' : 'Faltam ' + eur(missing)}</div></div>
         ${ring(bp / 10000, Math.min(999, Math.round(bp / 100)) + '%', 'do objetivo')}</div>
-      <div class="stats"><div class="stat"><small>Objetivo</small><b class="num">${eur(goal)}</b></div>
-        ${remaining > 0 && missing > 0 ? `<div class="stat"><small>Poupar/mês</small><b class="num">${eur(need)}</b></div><div class="stat"><small>Máx./mês</small><b class="num">${eur(Math.max(0, cap))}</b></div>` : ''}</div>
+      <div class="stats"><div class="stat"><small>Objetivo</small><b class="num">${eur(goal).replace(/,00 €$/, ' €')}</b></div>
+        ${cur ?`<div class="stat"><small>Este mês</small><b class="num">${eur(cur.guardado)}</b></div>` : ''}
+        ${need ? `<div class="stat"><small>Precisas/mês</small><b class="num">${eur(need)}</b></div>` : ''}</div>
     </section>`;
-    if (remaining > 0){
-      let msg;
-      if (missing <= 0) msg = `<b>Objetivo garantido</b> com os meses já fechados. Tudo o que poupares a mais é extra.`;
-      else if (cap < 0) msg = `O objetivo já não cabe no orçamento padrão de <b>${eur(y.defaultBudget)}</b>. Considera rever a meta.`;
-      else if (cur){
-        const leftNow = (cur.budget - need) - cur.spent;
-        msg = leftNow >= 0 ? `Este mês ainda podes gastar <b>${eur(leftNow)}</b> e manter-te no objetivo.` : `Este mês estás <b class="neg">${eur(-leftNow)} acima</b> do ritmo necessário para o objetivo.`;
-      } else msg = `Para cumprir, gasta no máximo <b>${eur(cap)}</b> por mês.`;
-      advice = `<section class="card advice">${icon(missing <= 0 ? 'Lazer' : cap < 0 ? 'Saúde' : 'Subscrições')}<p>${msg}</p></section>`;
-    }
+    let msg = '';
+    if (missing <= 0) msg = `<b>Objetivo cumprido.</b> Tudo o que guardares a partir daqui é extra.`;
+    else if (cur && cur.salary == null) msg = `Adiciona o salário de <b>${MESES[+today.slice(5) - 1].toLowerCase()}</b> em "Mês a mês" para veres quanto vais guardar este mês.`;
+    else if (cur && cur.guardado >= missing) msg = `Se acabares o mês assim, guardas <b>${eur(cur.guardado)}</b> e <b>chegas ao objetivo</b> já este mês.`;
+    else if (cur) msg = cur.guardado >= need
+      ? `Este mês vais guardar <b>${eur(cur.guardado)}</b>, acima dos ${eur(need)} por mês de que precisas.`
+      : `Este mês vais guardar <b>${eur(cur.guardado)}</b>. Para o objetivo precisas de <b>${eur(need)}</b> por mês.`;
+    else if (need) msg = `Para chegar ao objetivo precisas de guardar <b>${eur(need)}</b> por mês.`;
+    if (msg) advice = `<section class="card advice">${icon(missing <= 0 || (cur && cur.guardado >= need) ? 'Lazer' : 'Subscrições')}<p>${msg}</p></section>`;
   } else {
     hero = `<section class="hero"><div class="hero-top"><span class="eyebrow">Objetivo anual</span></div>
       <div class="big" style="font-size:24px;margin-top:8px;white-space:normal">Quanto queres poupar em ${y.year}?</div>
@@ -761,20 +831,29 @@ function renderYear(){
       <div class="crow-h"><span>${esc(k)}<small>${pct(Math.round(v * 10000 / spentYear))}</small></span><span class="num">${eur(v)}</span></div>
       <div class="track"><i style="width:${(v * 100 / maxC).toFixed(1)}%"></i></div></div></div>`).join('') : `<p class="hint">Sem despesas neste ano.</p>`;
 
-  const monthsHtml = y.months.filter(m => m.hasData).reverse().map(m => { const s = m.budget - m.spent; return `
-    <button class="mrow" data-month="${m.month}"><b>${MESES[+m.month.slice(5) - 1]}</b><span class="r num">${eur(m.spent)}<small class="${s < 0 ? 'neg' : 'pos'}">${s < 0 ? 'excedeu ' + eur(-s) : 'poupou ' + eur(s)}</small></span></button>`; }).join('');
+  const ledgerHtml = L.rows.map(r => `
+    <button class="mrow ${r.cur ? 'cur' : ''} ${r.future && r.salary == null ? 'muted' : ''}" data-sal="${r.month}">
+      <span><b>${MESES[+r.month.slice(5) - 1]}</b><small class="s num">${r.salary != null ? 'Salário ' + eur(r.salary) : 'Toca para pôr o salário'}</small></span>
+      <span class="r num">${r.future ? (r.salary != null ? `<b>${eur(r.guardar)}</b><small class="s">a guardar</small>` : '') : `<b class="${r.guardado < 0 ? 'neg' : ''}">${eur(r.guardado)}</b><small class="s">${r.closed ? 'total ' + eur(r.total) : 'previsto'}</small>`}</span>
+    </button>`).join('');
+  const extras = y.extras || [];
+  const extrasHtml = extras.map(e => `
+    <button class="mrow" data-extra="${esc(e.id)}"><span><b>${esc(e.desc)}</b><small class="s">${e.date ? fmtDate(e.date) : ''}${e.spent ? (e.date ? ' · ' : '') + 'gasto ' + eur(e.spent) : ''}</small></span>
+      <span class="r num"><b>${eur(e.cents - e.spent)}</b><small class="s">de ${eur(e.cents)}</small></span></button>`).join('');
 
   $('#view').innerHTML = `
   ${hero}
   ${advice}
+  <section class="card"><div class="card-h"><h3>Mês a mês</h3><span class="hint" style="margin:0">Guardado</span></div>${ledgerHtml || '<p class="hint">Sem meses neste ano.</p>'}</section>
+  <section class="card"><div class="card-h"><h3>Subsídios e extras</h3><button data-act="addExtra">Adicionar</button></div>
+    ${extrasHtml || '<p class="hint">Subsídio de férias, de Natal ou outros valores extra. Contam para o objetivo.</p>'}</section>
   <section class="card">
     <h3>Gasto por mês</h3>
     <div class="bars-wrap">${bars}<div class="budget-line" style="bottom:${(y.defaultBudget * 100 / max).toFixed(1)}%"><span class="num">${eur(y.defaultBudget)}</span></div></div>
     <div class="bar-labels">${labels}</div>
     <div class="crow-h" style="margin-top:14px;color:var(--muted)"><span>Média mensal</span><span class="num" style="color:var(--ink)">${eur(avg)}</span></div>
   </section>
-  <section class="card"><h3>Onde vai o dinheiro</h3>${catsHtml}</section>
-  ${monthsHtml ? `<section class="card"><h3>Meses</h3>${monthsHtml}</section>` : ''}`;
+  <section class="card"><h3>Onde vai o dinheiro</h3>${catsHtml}</section>`;
 }
 
 /* ============================== folha inferior ============================== */
@@ -943,6 +1022,75 @@ async function saveSettings(btn){
   } catch (e) { btn.disabled = false; toast(e.message); }
 }
 
+/* ---------- salário do mês (tabela "Mês a mês") ---------- */
+function salaryBreakdown(r, salary){
+  const guardar = salary != null ? salary - r.budget : 0, guardado = guardar + r.sobrou;
+  return `<div class="brk">
+    <div><span>Salário</span><b class="num">${salary != null ? eur(salary) : '—'}</b></div>
+    <div><span>Orçamento para gastar</span><b class="num">${eur(r.budget)}</b></div>
+    <div><span>Guardar</span><b class="num">${eur(guardar)}</b></div>
+    ${r.future ? '' : `<div><span>Gasto${r.cur ? ' até agora' : ''}</span><b class="num">${eur(r.spent)}</b></div>
+    <div><span>Sobrou${r.cur ? ' (por agora)' : ''}</span><b class="num ${r.sobrou < 0 ? 'neg' : ''}">${eur(r.sobrou)}</b></div>
+    <div class="tot"><span>Guardado${r.cur ? ' (previsto)' : ''}</span><b class="num ${guardado < 0 ? 'neg' : ''}">${eur(guardado)}</b></div>`}
+  </div>`;
+}
+function openSalary(month){
+  const r = ledger(S.yearData).rows.find(x => x.month === month); if (!r) return;
+  F = { mode:'salary', month, row:r };
+  openSheet(`
+    <div class="sheet-h"><button data-act="close">Cancelar</button><b>${monthLabel(month)}</b><button data-act="saveSalary" style="color:var(--accent);font-weight:700">Guardar</button></div>
+    <span class="lbl">Salário recebido (disponível na conta)</span>
+    <input class="field num" id="sSal" inputmode="decimal" placeholder="ex.: 1.290,40" value="${r.salary != null ? num(r.salary) : ''}" autocomplete="off">
+    <div id="sBrk">${salaryBreakdown(r, r.salary)}</div>
+    ${r.future ? '' : `<button class="linkbtn" data-month="${month}">Ver despesas do mês</button>`}`);
+}
+function updateSalary(){
+  const t = $('#sSal').value.trim(), c = t === '' ? null : parseAmount(t);
+  $('#sBrk').innerHTML = salaryBreakdown(F.row, t === '' ? null : c);
+}
+async function saveSalary(btn){
+  const t = $('#sSal').value.trim(), cents = t === '' ? null : parseAmount(t);
+  if (t !== '' && (cents == null || cents < 0)) return toast('Salário inválido.');
+  if (cents === F.row.salary) return closeSheet();
+  btn.disabled = true;
+  try { await call('setSalary', { month:F.month, cents }); closeSheet(); toast('Guardado'); loadYear(); }
+  catch (e) { btn.disabled = false; toast(e.message); }
+}
+
+/* ---------- subsídios e extras ---------- */
+function openExtra(e){
+  const isNew = !e;
+  e = e || { desc:'Subsídio de férias', cents:0, spent:0, date: S.year === now.getFullYear() ? TODAY : S.year + '-01-01' };
+  F = { mode:'extra', id:e.id || null };
+  openSheet(`
+    <div class="sheet-h"><button data-act="close">Cancelar</button><b>${isNew ? 'Novo extra' : 'Editar extra'}</b><button data-act="saveExtra" style="color:var(--accent);font-weight:700">Guardar</button></div>
+    <span class="lbl">Descrição</span>
+    <input class="field" id="xDesc" maxlength="100" value="${esc(e.desc)}" autocomplete="off">
+    <span class="lbl">Valor recebido</span>
+    <input class="field num" id="xVal" inputmode="decimal" placeholder="ex.: 818,80" value="${e.cents ? num(e.cents) : ''}" autocomplete="off">
+    <span class="lbl">Quanto já foi gasto</span>
+    <input class="field num" id="xSpent" inputmode="decimal" placeholder="0,00" value="${e.spent ? num(e.spent) : ''}" autocomplete="off">
+    <span class="lbl">Data</span>
+    <input type="date" class="field" id="xDate" min="${S.year}-01-01" max="${S.year}-12-31" value="${e.date || ''}">
+    <p class="hint">O que sobra (valor − gasto) conta para o objetivo de ${S.year}.</p>
+    ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad)" data-act="delExtra">Eliminar</button>`}`);
+}
+async function saveExtra(btn){
+  const desc = $('#xDesc').value.trim(), cents = parseAmount($('#xVal').value), spent = amountOrZero($('#xSpent').value);
+  if (!desc) return toast('Descrição em falta.');
+  if (cents == null || cents <= 0) return toast('Valor inválido.');
+  if (spent == null || spent < 0) return toast('Valor gasto inválido.');
+  btn.disabled = true;
+  try { await call('saveExtra', { id:F.id, year:S.year, desc, cents, spent, date:$('#xDate').value }); closeSheet(); toast('Guardado'); loadYear(); }
+  catch (e) { btn.disabled = false; toast(e.message); }
+}
+async function delExtra(btn){
+  if (btn.dataset.sure !== '1'){ btn.dataset.sure = '1'; btn.textContent = 'Toca outra vez para eliminar'; return; }
+  btn.disabled = true;
+  try { await call('deleteExtra', { id:F.id }); closeSheet(); toast('Eliminado'); loadYear(); }
+  catch (e) { btn.disabled = false; toast(e.message); }
+}
+
 function shift(dir){
   if (S.view === 'month'){
     const [y, m] = S.month.split('-').map(Number);
@@ -955,9 +1103,11 @@ function shift(dir){
 
 /* ============================== eventos ============================== */
 document.addEventListener('click', ev => {
-  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date]');
+  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra]');
   if (!el) return;
   const ds = el.dataset;
+  if (ds.sal){ openSalary(ds.sal); return; }
+  if (ds.extra){ const e = (S.yearData.extras || []).find(x => x.id === ds.extra); if (e) openExtra(e); return; }
   if (ds.key){ pressKey(ds.key); return; }
   if (ds.pick){ F.cat = ds.pick; F.catManual = true; buzz(); updateForm(); return; }
   if (ds.date && el.classList.contains('pill')){ F.date = ds.date; if ($('#fDate')) $('#fDate').value = ds.date; updateForm(); return; }
@@ -967,7 +1117,7 @@ document.addEventListener('click', ev => {
     return;
   }
   if (ds.hyp != null && ds.hyp !== ''){ S.sim.extra.splice(+ds.hyp, 1); render(); return; }
-  if (ds.month){ S.view = 'month'; S.month = ds.month; S.sim = newSim(); S.filter = null; S.data = null; render(); loadMonth(); return; }
+  if (ds.month){ if (F) closeSheet(); S.view = 'month'; S.month = ds.month; S.sim = newSim(); S.filter = null; S.data = null; render(); loadMonth(); return; }
   if (ds.cat){ S.filter = S.filter === ds.cat ? null : ds.cat; render(); return; }
   switch (ds.act){
     case 'login': doLogin(false); break;
@@ -983,6 +1133,10 @@ document.addEventListener('click', ev => {
     case 'submit': submitForm(el); break;
     case 'del': deleteExp(el); break;
     case 'saveSettings': saveSettings(el); break;
+    case 'saveSalary': saveSalary(el); break;
+    case 'addExtra': openExtra(null); break;
+    case 'saveExtra': saveExtra(el); break;
+    case 'delExtra': delExtra(el); break;
     case 'clearFilter': S.filter = null; render(); break;
     case 'sim': S.sim = S.sim.on ? newSim() : Object.assign(newSim(), { on:true }); render(); break;
     case 'tab':
@@ -996,6 +1150,7 @@ document.addEventListener('input', ev => {
   if (!F) return;
   if (ev.target.id === 'fDesc'){ F.desc = ev.target.value; if (!F.catManual){ F.cat = guessCat(F.desc); updateForm(); } }
   if (ev.target.id === 'fDate'){ F.date = ev.target.value; updateForm(); }
+  if (ev.target.id === 'sSal') updateSalary();
 });
 document.addEventListener('keydown', ev => {
   if (!F || !['add','edit','sim'].includes(F.mode)) { if (ev.key === 'Escape' && F) closeSheet(); return; }
@@ -1036,9 +1191,18 @@ const Mock = (() => {
       case 'getYear': {
         const ex = d.exp.filter(e => e.month.startsWith(String(p.year))), cats = {}, months = [];
         ex.forEach(e => cats[e.category] = (cats[e.category] || 0) + e.cents);
-        for (let i = 1; i <= 12; i++){ const m = p.year + '-' + pad(i); months.push({ month:m, budget:bud(m), spent:ex.filter(e => e.month === m).reduce((s, e) => s + e.cents, 0), hasData:d.months[m] != null }); }
-        r = { year:p.year, months, categories:cats, goal:d.goals[p.year] || 0, defaultBudget:d.def, today:TODAY_MONTH }; break;
+        d.sal = d.sal || {}; d.extras = d.extras || [];
+        for (let i = 1; i <= 12; i++){ const m = p.year + '-' + pad(i); months.push({ month:m, budget:bud(m), salary:d.sal[m] != null ? d.sal[m] : null, spent:ex.filter(e => e.month === m).reduce((s, e) => s + e.cents, 0), hasData:d.months[m] != null }); }
+        r = { year:p.year, months, extras:d.extras.filter(e => e.year === String(p.year)), categories:cats, goal:d.goals[p.year] || 0, defaultBudget:d.def, today:TODAY_MONTH }; break;
       }
+      case 'setSalary': d.sal = d.sal || {}; if (p.cents == null) delete d.sal[p.month]; else d.sal[p.month] = p.cents; if (d.months[p.month] == null) d.months[p.month] = d.def; r = {}; break;
+      case 'saveExtra': {
+        d.extras = d.extras || [];
+        const rec = { id:p.id || 'x' + (d.n++), year:p.date ? p.date.slice(0, 4) : String(p.year), date:p.date || '', desc:p.desc, cents:p.cents, spent:p.spent };
+        const i = d.extras.findIndex(x => x.id === rec.id); if (i >= 0) d.extras[i] = rec; else d.extras.push(rec);
+        r = { id:rec.id }; break;
+      }
+      case 'deleteExtra': d.extras = (d.extras || []).filter(x => x.id !== p.id); r = { id:p.id }; break;
       default: throw new Error('Ação desconhecida.');
     }
     save(d); return JSON.parse(JSON.stringify(r));
