@@ -1,5 +1,5 @@
 // Service worker: guarda a "casca" da app para abrir rápido. Os dados vêm sempre do Google.
-const CACHE = 'orcamento-v6';
+const CACHE = 'orcamento-v7';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

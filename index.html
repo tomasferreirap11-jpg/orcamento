@@ -74,10 +74,11 @@ main{max-width:520px;margin:0 auto;padding:4px 16px 0;display:flex;flex-directio
 .hero-dots{position:absolute;left:0;right:0;bottom:6px;display:flex;justify-content:center;gap:5px;pointer-events:none}
 .hero-dots i{width:5px;height:5px;border-radius:9px;background:#fff;opacity:.4;transition:width .2s,opacity .2s}
 .hero-dots i.on{width:14px;opacity:.95}
-.view-in-r{animation:inR .28s cubic-bezier(.2,.8,.2,1)}
-.view-in-l{animation:inL .28s cubic-bezier(.2,.8,.2,1)}
-@keyframes inR{from{opacity:.3;transform:translateX(48px)}to{opacity:1;transform:none}}
-@keyframes inL{from{opacity:.3;transform:translateX(-48px)}to{opacity:1;transform:none}}
+.view-in-r{animation:inR .42s cubic-bezier(.22,.9,.3,1) both}
+.view-in-l{animation:inL .42s cubic-bezier(.22,.9,.3,1) both}
+@keyframes inR{from{opacity:0;transform:translateX(36px)}to{opacity:1;transform:none}}
+@keyframes inL{from{opacity:0;transform:translateX(-36px)}to{opacity:1;transform:none}}
+.hero{will-change:transform}
 @media (prefers-reduced-motion: reduce){.view-in-r,.view-in-l{animation:none}}
 .ring{width:86px;height:86px;flex:none}
 .ring circle{fill:none;stroke-width:8}
@@ -715,7 +716,7 @@ const autoToast = n => { if (n) toast(n === 1 ? '1 despesa recorrente adicionada
 
 async function loadMonth(){
   const req = ++S.seq;
-  try { const d = await call('getMonth', { month:S.month }); if (req !== S.seq) return; S.data = d; render(); autoToast(d.auto); }
+  try { const d = await call('getMonth', { month:S.month }); if (req !== S.seq) return; S.data = d; render(); autoToast(d.auto); setTimeout(prefetchYear, 600); }
   catch (e) { if (!$('#login').hidden) return; toast(e.message); }
 }
 async function loadRec(){
@@ -765,24 +766,58 @@ function render(){
   if (h) h.insertAdjacentHTML('beforeend', `<div class="hero-dots" aria-hidden="true"><i class="${S.view === 'month' ? 'on' : ''}"></i><i class="${S.view === 'year' ? 'on' : ''}"></i></div>`);
 }
 // trocar entre Mês e Ano com um swipe horizontal no cartão verde
-function switchView(to){
+const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+function switchView(to, dir){
   if (to === S.view) return;
   S.view = to;
   if (to === 'year') S.year = +S.month.slice(0, 4);
-  render(); load();
+  render(); load();   // usa os dados já carregados (sem "esqueleto") e atualiza em silêncio
+  if (reduceMotion()) return;
   const v = $('#view'); v.classList.remove('view-in-r', 'view-in-l'); void v.offsetWidth;
-  v.classList.add(to === 'year' ? 'view-in-r' : 'view-in-l');
+  v.classList.add((dir || (to === 'year' ? -1 : 1)) < 0 ? 'view-in-r' : 'view-in-l');
+}
+// carrega o ano em segundo plano para o swipe abrir logo
+let prefetching = false;
+async function prefetchYear(){
+  const yr = +S.month.slice(0, 4);
+  if (prefetching || (S.yearData && S.yearData.year === yr)) return;
+  prefetching = true;
+  try { const d = await call('getYear', { year: yr }); if (!S.yearData || S.yearData.year !== yr || S.view !== 'year') S.yearData = d; } catch (e) {} finally { prefetching = false; }
 }
 (() => {
-  let sx = 0, sy = 0, on = false;
+  let sx = 0, sy = 0, dx = 0, hero = null, mode = null;   // mode: null (a decidir) | 'x' (arrastar) | 'y' (deslocar página)
   const view = document.getElementById('view');
-  view.addEventListener('touchstart', ev => { on = !!ev.target.closest('.hero') && ev.touches.length === 1; if (on){ sx = ev.touches[0].clientX; sy = ev.touches[0].clientY; } }, { passive: true });
-  view.addEventListener('touchend', ev => {
-    if (!on) return; on = false;
-    const t = ev.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
-    if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    switchView(S.view === 'month' ? 'year' : 'month');
+  const ease = 'transform .32s cubic-bezier(.22,.9,.3,1), opacity .32s ease';
+  view.addEventListener('touchstart', ev => {
+    hero = ev.touches.length === 1 && S.view !== 'rec' ? ev.target.closest('.hero') : null;
+    if (!hero) return;
+    sx = ev.touches[0].clientX; sy = ev.touches[0].clientY; dx = 0; mode = null;
+    hero.style.transition = 'none';
   }, { passive: true });
+  view.addEventListener('touchmove', ev => {
+    if (!hero) return;
+    const t = ev.touches[0], mx = t.clientX - sx, my = t.clientY - sy;
+    if (!mode){ if (Math.abs(mx) < 8 && Math.abs(my) < 8) return; mode = Math.abs(mx) > Math.abs(my) ? 'x' : 'y'; }
+    if (mode !== 'x') return;
+    dx = mx;
+    hero.style.transform = `translateX(${dx}px) rotate(${dx / 60}deg)`;
+    hero.style.opacity = String(1 - Math.min(.35, Math.abs(dx) / 900));
+  }, { passive: true });
+  const end = () => {
+    if (!hero) return;
+    const h = hero; hero = null;
+    if (mode !== 'x'){ h.style.transition = ''; return; }
+    const w = h.offsetWidth || 360;
+    h.style.transition = ease;
+    if (Math.abs(dx) > Math.min(90, w * .25)){
+      const dir = dx < 0 ? -1 : 1;
+      h.style.transform = `translateX(${dir * (w + 40)}px) rotate(${dir * 6}deg)`;
+      h.style.opacity = '0';
+      setTimeout(() => switchView(S.view === 'month' ? 'year' : 'month', dir), reduceMotion() ? 0 : 170);
+    } else { h.style.transform = ''; h.style.opacity = ''; }
+  };
+  view.addEventListener('touchend', end, { passive: true });
+  view.addEventListener('touchcancel', end, { passive: true });
 })();
 function skeleton(){
   $('#view').innerHTML = `<div class="sk" style="height:206px;border-radius:26px"></div><div class="sk" style="height:96px"></div><div class="sk" style="height:260px"></div>`;
@@ -1086,8 +1121,8 @@ function openSettings(){
     ${isMonth && d ? `<span class="lbl">Orçamento de ${monthLabel(ym)}</span>
       <input class="field num" id="sBud" inputmode="decimal" value="${num(d.budget)}">
       <label class="check"><input type="checkbox" id="sDef"${d.budget === d.defaultBudget ? ' checked' : ''}> Usar também nos próximos meses</label>` : ''}
-    <span class="lbl">Objetivo de poupança ${year}</span>
-    <input class="field num" id="sGoal" inputmode="decimal" placeholder="ex.: 1.200,00" value="${goal ? num(goal) : ''}">
+    ${S.view !== 'year' || !S.yearData ? '' : `<span class="lbl">Objetivo de poupança ${year}</span>
+    <input class="field num" id="sGoal" inputmode="decimal" placeholder="ex.: 1.200,00" value="${goal ? num(goal) : ''}">`}
     <div style="height:18px"></div>
     ${ACCOUNT.email ? `<div class="set-row">Conta <span>${esc(ACCOUNT.email)}</span></div>` : ''}
     <button class="set-row logout" style="width:100%" data-act="logout">Terminar sessão
@@ -1095,9 +1130,9 @@ function openSettings(){
 }
 async function saveSettings(btn){
   const month = F.month, year = +month.slice(0, 4);
-  const gt = $('#sGoal').value.trim();
-  const goal = gt === '' || /^0+([.,]0*)?$/.test(gt) ? 0 : parseAmount(gt);
-  if (goal == null || goal < 0) return toast('Objetivo inválido.');
+  const gt = $('#sGoal') ? $('#sGoal').value.trim() : null;
+  const goal = gt == null ? null : gt === '' || /^0+([.,]0*)?$/.test(gt) ? 0 : parseAmount(gt);
+  if (gt != null && (goal == null || goal < 0)) return toast('Objetivo inválido.');
   let bud = null, def = false;
   if ($('#sBud')){
     const bt = $('#sBud').value.trim();
@@ -1108,8 +1143,7 @@ async function saveSettings(btn){
   btn.disabled = true;
   try {
     if (bud != null && (bud !== S.data.budget || (def && bud !== S.data.defaultBudget))) await call('setBudget', { month, cents:bud, makeDefault:def });
-    const curGoal = S.view === 'year' ? S.yearData.goal : S.data.goal;
-    if (goal !== curGoal) await call('setGoal', { year, cents:goal });
+    if (gt != null && goal !== S.yearData.goal) await call('setGoal', { year, cents:goal });
     closeSheet(); toast('Guardado'); load();
   } catch (e) { btn.disabled = false; toast(e.message); }
 }
@@ -1142,7 +1176,7 @@ function openRec(r){
     <input class="field num" id="rVal" inputmode="decimal" value="${r.cents ? num(r.cents) : ''}" autocomplete="off">
     <span class="lbl">Categoria</span>
     <div class="cats">${CATS.map(c => `<button class="cat-pick ${c === F.cat ? 'on' : ''}" data-pick="${c}" style="--c:${CAT[c].c}">${icon(c, 'sm')}${c}</button>`).join('')}</div>
-    ${isNew ? '' : `<label class="check"><input type="checkbox" id="rAct"${r.active ? ' checked' : ''}> Ativa (lançar todos os meses)</label>`}
+    ${isNew ? '' : `<label class="check"><input type="checkbox" id="rAct"${r.active ? ' checked' : ''}> Ativa</label>`}
     ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad)" data-act="delRec">Eliminar</button>`}`);
 }
 async function saveRec(btn){
@@ -1260,7 +1294,14 @@ document.addEventListener('click', ev => {
   }
   if (ds.hyp != null && ds.hyp !== ''){ S.sim.extra.splice(+ds.hyp, 1); render(); return; }
   if (ds.month){ if (F) closeSheet(); S.view = 'month'; S.month = ds.month; S.sim = newSim(); S.filter = null; S.data = null; render(); loadMonth(); return; }
-  if (ds.cat){ S.filter = S.filter === ds.cat ? null : ds.cat; render(); return; }
+  if (ds.cat){
+    // a lista de categorias fica onde estava: só mudam as despesas mostradas
+    const rail = $('#view .rail'), x = rail ? rail.scrollLeft : 0, y = window.scrollY;
+    S.filter = S.filter === ds.cat ? null : ds.cat; buzz(); render();
+    const r2 = $('#view .rail'); if (r2){ r2.style.scrollSnapType = 'none'; r2.scrollLeft = x; requestAnimationFrame(() => { r2.style.scrollSnapType = ''; }); }
+    window.scrollTo(0, y);
+    return;
+  }
   switch (ds.act){
     case 'login': doLogin(false); break;
     case 'loginOther': doLogin(true); break;
