@@ -70,6 +70,15 @@ main{max-width:520px;margin:0 auto;padding:4px 16px 0;display:flex;flex-directio
 .big{font-size:44px;font-weight:800;letter-spacing:-.035em;line-height:1.05;white-space:nowrap}
 .big .cents{font-size:26px;opacity:.85;letter-spacing:-.02em}
 .hero-sub{font-size:13px;opacity:.8;margin-top:4px}
+.hero{touch-action:pan-y}
+.hero-dots{position:absolute;left:0;right:0;bottom:6px;display:flex;justify-content:center;gap:5px;pointer-events:none}
+.hero-dots i{width:5px;height:5px;border-radius:9px;background:#fff;opacity:.4;transition:width .2s,opacity .2s}
+.hero-dots i.on{width:14px;opacity:.95}
+.view-in-r{animation:inR .28s cubic-bezier(.2,.8,.2,1)}
+.view-in-l{animation:inL .28s cubic-bezier(.2,.8,.2,1)}
+@keyframes inR{from{opacity:.3;transform:translateX(48px)}to{opacity:1;transform:none}}
+@keyframes inL{from{opacity:.3;transform:translateX(-48px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){.view-in-r,.view-in-l{animation:none}}
 .ring{width:86px;height:86px;flex:none}
 .ring circle{fill:none;stroke-width:8}
 .ring .bg{stroke:rgba(255,255,255,.18)}
@@ -691,7 +700,29 @@ function render(){
   $('#title').textContent = S.view === 'month' ? monthLabel(S.month) : String(S.year);
   if (S.view === 'month') (S.data && S.data.month === S.month) ? renderMonth() : skeleton();
   else (S.yearData && S.yearData.year === S.year) ? renderYear() : skeleton();
+  const h = $('#view .hero');
+  if (h) h.insertAdjacentHTML('beforeend', `<div class="hero-dots" aria-hidden="true"><i class="${S.view === 'month' ? 'on' : ''}"></i><i class="${S.view === 'year' ? 'on' : ''}"></i></div>`);
 }
+// trocar entre Mês e Ano com um swipe horizontal no cartão verde
+function switchView(to){
+  if (to === S.view) return;
+  S.view = to;
+  if (to === 'year') S.year = +S.month.slice(0, 4);
+  render(); load();
+  const v = $('#view'); v.classList.remove('view-in-r', 'view-in-l'); void v.offsetWidth;
+  v.classList.add(to === 'year' ? 'view-in-r' : 'view-in-l');
+}
+(() => {
+  let sx = 0, sy = 0, on = false;
+  const view = document.getElementById('view');
+  view.addEventListener('touchstart', ev => { on = !!ev.target.closest('.hero') && ev.touches.length === 1; if (on){ sx = ev.touches[0].clientX; sy = ev.touches[0].clientY; } }, { passive: true });
+  view.addEventListener('touchend', ev => {
+    if (!on) return; on = false;
+    const t = ev.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    switchView(S.view === 'month' ? 'year' : 'month');
+  }, { passive: true });
+})();
 function skeleton(){
   $('#view').innerHTML = `<div class="sk" style="height:206px;border-radius:26px"></div><div class="sk" style="height:96px"></div><div class="sk" style="height:260px"></div>`;
 }
@@ -766,11 +797,11 @@ function renderMonth(){
 // Contas do ano, como na tabela "Geral": Guardar = salário − orçamento; Sobrou = orçamento − gasto;
 // Guardado = Guardar + Sobrou; Total = soma dos meses fechados. Subsídios (valor − gasto) somam ao total.
 function ledger(y){
-  const today = y.today, nextM = (() => { const [a, b] = today.split('-').map(Number); const d = new Date(a, b, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); })();
+  const today = y.today;
   let total = 0; const rows = [];
   y.months.forEach(m => {
     const closed = m.month < today, cur = m.month === today;
-    const show = (closed && (m.hasData || m.salary != null)) || cur || m.salary != null || m.month === nextM;
+    const show = (closed && (m.hasData || m.salary != null)) || cur;   // só até ao mês atual
     if (!show) return;
     const guardar = m.salary != null ? m.salary - m.budget : 0;
     const sobrou = m.month > today ? 0 : m.budget - m.spent;
@@ -1067,12 +1098,11 @@ function openExtra(e){
     <span class="lbl">Descrição</span>
     <input class="field" id="xDesc" maxlength="100" value="${esc(e.desc)}" autocomplete="off">
     <span class="lbl">Valor recebido</span>
-    <input class="field num" id="xVal" inputmode="decimal" placeholder="ex.: 818,80" value="${e.cents ? num(e.cents) : ''}" autocomplete="off">
+    <input class="field num" id="xVal" inputmode="decimal" value="${e.cents ? num(e.cents) : ''}" autocomplete="off">
     <span class="lbl">Quanto já foi gasto</span>
-    <input class="field num" id="xSpent" inputmode="decimal" placeholder="0,00" value="${e.spent ? num(e.spent) : ''}" autocomplete="off">
+    <input class="field num" id="xSpent" inputmode="decimal" value="${e.spent ? num(e.spent) : ''}" autocomplete="off">
     <span class="lbl">Data</span>
     <input type="date" class="field" id="xDate" min="${S.year}-01-01" max="${S.year}-12-31" value="${e.date || ''}">
-    <p class="hint">O que sobra (valor − gasto) conta para o objetivo de ${S.year}.</p>
     ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad)" data-act="delExtra">Eliminar</button>`}`);
 }
 async function saveExtra(btn){
