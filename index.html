@@ -263,6 +263,12 @@ body.sim .fab{background:var(--hyp);box-shadow:0 10px 24px -8px color-mix(in srg
 .key{height:52px;border-radius:16px;background:var(--press);font-size:22px;font-weight:600;display:grid;place-items:center;transition:transform .08s}
 .key:active{transform:scale(.95);background:var(--line)}
 .key svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* teclado numérico da app em todos os campos de valores (fica fixo no fundo da janela) */
+.kp-pad{position:sticky;bottom:0;z-index:2;background:var(--card);margin:14px -2px 0;padding:10px 2px 4px;gap:7px}
+.kp-pad .key{height:48px}
+[data-kpf]{cursor:pointer;caret-color:transparent;font-size:18px;font-weight:700}
+[data-kpf].kp-on{border-color:var(--accent)}
+[data-kpf].kp-on.fresh{color:var(--accent)}
 .linkbtn{display:block;width:100%;text-align:center;color:var(--accent);font-weight:700;font-size:14px;padding:14px 0 2px}
 textarea.field{resize:vertical;min-height:180px;line-height:1.5}
 .hint{font-size:13px;color:var(--muted);margin:8px 4px 0}
@@ -1240,7 +1246,39 @@ function unlockBody(){
   document.body.classList.remove('sheet-lock'); document.body.style.top = '';
   window.scrollTo(0, lockY); lockY = null;
 }
-function openSheet(html){ $('#sheet').innerHTML = '<div class="grab"></div>' + html; $('#sheet').scrollTop = 0; lockBody(); $('#scrim').classList.add('open'); const sh = $('#sheet'); void sh.offsetWidth; sh.classList.add('open'); }
+function openSheet(html){
+  const sh = $('#sheet');
+  sh.innerHTML = '<div class="grab"></div>' + html; sh.scrollTop = 0;
+  // campos de valores: usam o teclado da app (o mesmo da nova despesa) em vez do teclado do telemóvel
+  const kps = sh.querySelectorAll('[data-kpf]');
+  KP = null;
+  if (kps.length){
+    sh.insertAdjacentHTML('beforeend', `<div class="keypad kp-pad">${['1','2','3','4','5','6','7','8','9',',','0','del'].map(k => `<button class="key" data-kp="${k}" aria-label="${k === 'del' ? 'Apagar' : k}">${k === 'del' ? '<svg viewBox="0 0 24 24"><path d="M21 5H9l-6 7 6 7h12z"/><path d="M17 9l-6 6M11 9l6 6"/></svg>' : k}</button>`).join('')}</div>`);
+    kpActivate(kps[0]);
+  }
+  lockBody(); $('#scrim').classList.add('open'); void sh.offsetWidth; sh.classList.add('open');
+}
+let KP = null;   // campo de valor ativo
+const kpFormat = raw => { const [i, d] = raw.split(','); const ii = (i || '').replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.'); return d != null ? (ii || '0') + ',' + d : ii; };
+function kpActivate(inp){
+  document.querySelectorAll('[data-kpf]').forEach(x => x.classList.toggle('kp-on', x === inp));
+  KP = inp; inp.dataset.raw = inp.value.replace(/\./g, '');
+  inp.classList.toggle('fresh', !!inp.value);   // o primeiro número substitui o valor que lá está
+}
+function kpPress(k){
+  if (!KP || !KP.isConnected) return;
+  let raw = KP.dataset.raw || '';
+  if (KP.classList.contains('fresh')){ KP.classList.remove('fresh'); if (k !== 'del') raw = ''; }
+  if (k === 'del') raw = raw.slice(0, -1);
+  else if (k === ','){ if (!raw.includes(',')) raw = (raw || '0') + ','; }
+  else {
+    if (raw.includes(',') && raw.split(',')[1].length >= 2) return;
+    if (raw.replace(',', '').length >= 9) return;
+    raw += k;
+  }
+  KP.dataset.raw = raw; KP.value = kpFormat(raw); buzz();
+  KP.dispatchEvent(new Event('input', { bubbles: true }));
+}
 function closeSheet(){ $('#sheet').classList.remove('open'); $('#scrim').classList.remove('open'); unlockBody(); F = null; }
 
 let F = null;   // formulário aberto
@@ -1352,10 +1390,10 @@ function openSettings(){
   openSheet(`
     <div class="sheet-h"><button data-act="close">Cancelar</button><b>Definições</b><button data-act="saveSettings" style="color:var(--accent);font-weight:700">Guardar</button></div>
     ${isMonth && d ? `<span class="lbl">Orçamento de ${monthLabel(ym)}</span>
-      <input class="field num" id="sBud" inputmode="decimal" value="${num(d.budget)}">
+      <input class="field num" id="sBud" inputmode="none" readonly data-kpf value="${num(d.budget)}">
       <label class="check"><input type="checkbox" id="sDef"${d.budget === d.defaultBudget ? ' checked' : ''}> Usar também nos próximos meses</label>` : ''}
     ${S.view !== 'year' || !S.yearData ? '' : `<span class="lbl">Objetivo de poupança ${year}</span>
-    <input class="field num" id="sGoal" inputmode="decimal" placeholder="ex.: 1.200,00" value="${goal ? num(goal) : ''}">`}
+    <input class="field num" id="sGoal" inputmode="none" readonly data-kpf value="${goal ? num(goal) : ''}">`}
     <div style="height:18px"></div>
     <button class="set-row" style="width:100%" data-act="cats">Categorias <span>${CUSTOM.length ? CUSTOM.length + (CUSTOM.length === 1 ? ' criada' : ' criadas') : 'Criar'} ›</span></button>
     ${ACCOUNT.email ?`<div class="set-row">Conta <span>${esc(ACCOUNT.email)}</span></div>` : ''}
@@ -1447,7 +1485,7 @@ function openMove(m){
     <div class="seg"><button data-mtype="in">Entrada</button><button data-mtype="out">Saída</button></div>
     ${funds.length > 1 ? `<span class="lbl">Fundo</span><div class="pills">${funds.map(f => `<button class="pill" data-mfund="${esc(f.id)}"><i class="fund-dot" style="--c:${f.color}"></i>${esc(f.name)}</button>`).join('')}</div>` : ''}
     <span class="lbl">Valor</span>
-    <input class="field num" id="mVal" inputmode="decimal" value="${m.cents ? num(Math.abs(m.cents)) : ''}" autocomplete="off">
+    <input class="field num" id="mVal" inputmode="none" readonly data-kpf value="${m.cents ? num(Math.abs(m.cents)) : ''}" autocomplete="off">
     <span class="lbl">Descrição</span>
     <input class="field" id="mDesc" maxlength="100" value="${esc(m.desc)}" autocomplete="off">
     <div id="mCats"><span class="lbl">Categoria</span>
@@ -1607,7 +1645,7 @@ function openRec(r, freq){
     <span class="lbl">Descrição</span>
     <input class="field" id="rDesc" maxlength="100" value="${esc(r.desc)}" autocomplete="off">
     <span class="lbl" id="rValLbl">Valor</span>
-    <input class="field num" id="rVal" inputmode="decimal" value="${r.cents ? num(r.cents) : ''}" autocomplete="off">
+    <input class="field num" id="rVal" inputmode="none" readonly data-kpf value="${r.cents ? num(r.cents) : ''}" autocomplete="off">
     <div id="rYear">
       <span class="lbl">Data</span>
       <input type="date" class="field" id="rDay" value="${dayVal}">
@@ -1664,7 +1702,7 @@ function openSalary(month){
   openSheet(`
     <div class="sheet-h"><button data-act="close">Cancelar</button><b>${monthLabel(month)}</b><button data-act="saveSalary" style="color:var(--accent);font-weight:700">Guardar</button></div>
     <span class="lbl">Salário recebido (disponível na conta)</span>
-    <input class="field num" id="sSal" inputmode="decimal" placeholder="ex.: 1.290,40" value="${r.salary != null ? num(r.salary) : ''}" autocomplete="off">
+    <input class="field num" id="sSal" inputmode="none" readonly data-kpf value="${r.salary != null ? num(r.salary) : ''}" autocomplete="off">
     <div id="sBrk">${salaryBreakdown(r, r.salary)}</div>
     ${r.future ? '' : `<button class="linkbtn" data-month="${month}">Ver despesas do mês</button>`}`);
 }
@@ -1691,9 +1729,9 @@ function openExtra(e){
     <span class="lbl">Descrição</span>
     <input class="field" id="xDesc" maxlength="100" value="${esc(e.desc)}" autocomplete="off">
     <span class="lbl">Valor recebido</span>
-    <input class="field num" id="xVal" inputmode="decimal" value="${e.cents ? num(e.cents) : ''}" autocomplete="off">
+    <input class="field num" id="xVal" inputmode="none" readonly data-kpf value="${e.cents ? num(e.cents) : ''}" autocomplete="off">
     <span class="lbl">Quanto já foi gasto</span>
-    <input class="field num" id="xSpent" inputmode="decimal" value="${e.spent ? num(e.spent) : ''}" autocomplete="off">
+    <input class="field num" id="xSpent" inputmode="none" readonly data-kpf value="${e.spent ? num(e.spent) : ''}" autocomplete="off">
     <span class="lbl">Data</span>
     <input type="date" class="field" id="xDate" min="${S.year}-01-01" max="${S.year}-12-31" value="${e.date || ''}">
     ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad)" data-act="delExtra">Eliminar</button>`}`);
@@ -1726,9 +1764,11 @@ function shift(dir){
 
 /* ============================== eventos ============================== */
 document.addEventListener('click', ev => {
-  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra],[data-rec],[data-color],[data-icon],[data-editcat],[data-fund],[data-move],[data-mtype],[data-mfund],[data-pay],[data-freq]');
+  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra],[data-rec],[data-color],[data-icon],[data-editcat],[data-fund],[data-move],[data-mtype],[data-mfund],[data-pay],[data-freq],[data-kp],[data-kpf]');
   if (!el) return;
   const ds = el.dataset;
+  if (ds.kp){ kpPress(ds.kp); return; }
+  if ('kpf' in ds){ kpActivate(el); return; }
   if (ds.color && F && F.mode === 'cat'){ F.color = ds.color; buzz(); updateCatForm(); return; }
   if (ds.color && F && F.mode === 'fund'){ F.color = ds.color; buzz(); document.querySelectorAll('.swatch').forEach(b => b.classList.toggle('on', b.dataset.color === F.color)); return; }
   if (ds.fund){ const f = S.fundsData.funds.find(x => x.id === ds.fund); if (f) openFund(f); return; }
@@ -1810,7 +1850,17 @@ document.addEventListener('input', ev => {
   if (ev.target.id === 'cName') updateCatForm();
 });
 document.addEventListener('keydown', ev => {
-  if (!F || !['add','edit','sim'].includes(F.mode)) { if (ev.key === 'Escape' && F) closeSheet(); return; }
+  if (!F || !['add','edit','sim'].includes(F.mode)) {
+    if (ev.key === 'Escape' && F) return closeSheet();
+    // no computador: escrever números no campo de valor ativo
+    const t = ev.target, typing = t.tagName === 'INPUT' && !('kpf' in t.dataset);
+    if (F && KP && KP.isConnected && !typing){
+      if (/^\d$/.test(ev.key)) { kpPress(ev.key); ev.preventDefault(); }
+      else if (ev.key === ',' || ev.key === '.') { kpPress(','); ev.preventDefault(); }
+      else if (ev.key === 'Backspace') { kpPress('del'); ev.preventDefault(); }
+    }
+    return;
+  }
   if (ev.key === 'Escape') return closeSheet();
   const inField = ev.target.tagName === 'INPUT' && ev.target.type !== 'checkbox';
   if (ev.key === 'Enter'){ if (inField) ev.target.blur(); else if (formCents()) submitForm($('#fGo')); ev.preventDefault(); return; }
