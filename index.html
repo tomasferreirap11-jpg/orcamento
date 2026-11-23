@@ -227,7 +227,8 @@ body.sim .fab{background:var(--hyp);box-shadow:0 10px 24px -8px color-mix(in srg
 .scrim.open{opacity:1;pointer-events:auto}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;margin:0 auto;max-width:520px;background:var(--card);border-radius:28px 28px 0 0;padding:8px 18px calc(18px + env(safe-area-inset-bottom));max-height:94vh;overflow:auto;transform:translateY(105%);transition:transform .32s cubic-bezier(.2,.8,.2,1)}
 .sheet.open{transform:none}
-.grab{width:40px;height:5px;border-radius:9px;background:var(--line);margin:4px auto 10px}
+.grab{width:40px;height:5px;border-radius:9px;background:var(--line);margin:4px auto 10px;position:relative}
+.grab::before{content:"";position:absolute;inset:-14px -60px}   /* zona de toque maior para arrastar */
 .sheet-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
 .sheet-h b{font-size:16px;font-weight:800}
 .sheet-h button{font-weight:600;color:var(--muted);padding:6px 2px;min-width:64px;text-align:left}
@@ -411,15 +412,6 @@ function parseAmount(s){
   if (!/^-?\d+(\.\d{1,2})?$/.test(t)) return null;
   const c = Math.round(parseFloat(t) * 100);
   return c === 0 || Math.abs(c) > 1e8 ? null : c;
-}
-function parseLine(line){
-  line = line.trim(); if (!line) return null;
-  const clean = d => d.replace(/^[\s\-–—:;,]+|[\s\-–—:;,]+$/g, '').slice(0, 100);
-  let m = line.match(/^(.*\S)\s+(-?[\d.,]+\s*€?)$/);
-  if (m){ const c = parseAmount(m[2]), d = clean(m[1]); if (c != null && d) return { desc: d, cents: c }; }
-  m = line.match(/^€?\s*(-?[\d.,]+)\s*€?\s+(.+)$/);
-  if (m){ const c = parseAmount(m[1]), d = clean(m[2]); if (c != null && d) return { desc: d, cents: c }; }
-  return null;
 }
 function dayLabel(d){
   const t = new Date(), y = new Date(); y.setDate(t.getDate() - 1);
@@ -1157,7 +1149,7 @@ function openForm(mode, e){
   const quick = S.month === TODAY_MONTH ? [['Hoje', TODAY], ['Ontem', ymd(y)]].filter(q => q[1] >= min) : [];
   const title = F.mode === 'edit' ? 'Editar despesa' : F.mode === 'sim' ? 'Despesa simulada' : 'Nova despesa';
   openSheet(`
-    <div class="sheet-h"><button data-act="close">Cancelar</button><b>${title}</b><button data-act="${F.mode === 'add' ? 'bulk' : 'none'}" style="${F.mode === 'add' ? 'color:var(--accent)' : 'visibility:hidden'}">Várias</button></div>
+    <div class="sheet-h"><button data-act="close">Cancelar</button><b>${title}</b><button style="visibility:hidden" aria-hidden="true" tabindex="-1">Cancelar</button></div>
     <div class="amount" id="fAmt"></div>
     <div class="amount-cap">${F.mode === 'sim' ? 'Não fica gravada' : monthLabel(S.month)}</div>
     <input class="field" id="fDesc" maxlength="100" placeholder="Descrição (ex.: Farmácia)" value="${esc(F.desc)}" autocomplete="off" enterkeyhint="done">
@@ -1231,30 +1223,6 @@ async function addItems(items){
     toast('Não gravado: ' + e.message);
     return false;
   }
-}
-
-function openBulk(){
-  F = { mode:'bulk' };
-  openSheet(`
-    <div class="sheet-h"><button data-act="close">Cancelar</button><b>Várias despesas</b><button style="visibility:hidden">.</button></div>
-    <textarea class="field" id="bulkTxt" placeholder="Uma por linha:&#10;12,95 Farmácia&#10;Via Verde 2,19&#10;39,90 Ginásio"></textarea>
-    <p class="hint">Valor e descrição em cada linha, por qualquer ordem. A categoria é sugerida automaticamente.</p>
-    <div style="height:12px"></div>
-    <button class="btn primary" data-act="bulkGo">Adicionar todas</button>`);
-  setTimeout(() => $('#bulkTxt').focus(), 300);
-}
-async function submitBulk(btn){
-  const ta = $('#bulkTxt');
-  const lines = ta.value.split(/\n/).map(l => l.trim()).filter(Boolean);
-  const ok = [], bad = [];
-  lines.forEach(l => { const p = parseLine(l); p ? ok.push(p) : bad.push(l); });
-  if (!ok.length) return toast(bad.length ? 'Não percebi: «' + bad[0] + '»' : 'Escreve pelo menos uma despesa.');
-  const date = defaultDate();
-  btn.disabled = true;
-  const done = await addItems(ok.map(o => ({ month:S.month, date, desc:o.desc, cents:o.cents, category:guessCat(o.desc) })));
-  if (!done){ btn.disabled = false; return; }
-  if (bad.length){ ta.value = bad.join('\n'); btn.disabled = false; toast('Ficaram ' + bad.length + ' linhas por perceber'); }
-  else closeSheet();
 }
 
 async function deleteExp(btn){
@@ -1556,8 +1524,6 @@ document.addEventListener('click', ev => {
     case 'settings': openSettings(); break;
     case 'close': closeSheet(); break;
     case 'add': if (S.view === 'rec'){ openRec(null); break; } if (S.view === 'year'){ S.view = 'month'; render(); if (!S.data || S.data.month !== S.month) loadMonth(); } openForm('add'); break;
-    case 'bulk': openBulk(); break;
-    case 'bulkGo': submitBulk(el); break;
     case 'submit': submitForm(el); break;
     case 'del': deleteExp(el); break;
     case 'saveSettings': saveSettings(el); break;
@@ -1599,8 +1565,42 @@ document.addEventListener('keydown', ev => {
   else if (ev.key === ',' || ev.key === '.') pressKey(',');
   else if (ev.key === 'Backspace') pressKey('del');
 });
-$('#scrim').addEventListener('click', closeSheet);
+// a janela fecha com "Cancelar" ou arrastando-a para baixo (tocar fora não fecha, para não perder o que se escreveu)
 $('#scrim').addEventListener('touchmove', ev => ev.preventDefault(), { passive: false });
+(() => {
+  const sh = $('#sheet'), scrim = $('#scrim');
+  let y0, x0, dy, mode, lastY, lastT, vel;
+  sh.addEventListener('touchstart', ev => {
+    if (!sh.classList.contains('open') || ev.touches.length !== 1) { mode = 'no'; return; }
+    y0 = lastY = ev.touches[0].clientY; x0 = ev.touches[0].clientX; lastT = performance.now(); dy = 0; vel = 0; mode = null;
+  }, { passive: true });
+  sh.addEventListener('touchmove', ev => {
+    if (mode === 'no') return;
+    const t = ev.touches[0], my = t.clientY - y0, mx = t.clientX - x0;
+    if (!mode){
+      if (Math.abs(my) < 6 && Math.abs(mx) < 6) return;
+      mode = my > 0 && Math.abs(my) > Math.abs(mx) && sh.scrollTop <= 0 ? 'drag' : 'no';
+      if (mode !== 'drag') return;
+      sh.style.transition = 'none'; scrim.style.transition = 'none';
+      if (document.activeElement && document.activeElement.blur && sh.contains(document.activeElement)) document.activeElement.blur();
+    }
+    ev.preventDefault();
+    const now = performance.now(); vel = (t.clientY - lastY) / Math.max(1, now - lastT); lastY = t.clientY; lastT = now;
+    dy = Math.max(0, my);
+    sh.style.transform = `translateY(${dy}px)`;
+    scrim.style.opacity = String(Math.max(0, 1 - dy / (sh.offsetHeight || 400)));
+  }, { passive: false });
+  const end = () => {
+    if (mode !== 'drag') { mode = null; return; }
+    mode = null;
+    sh.style.transition = ''; scrim.style.transition = '';
+    const close = dy > Math.min(140, sh.offsetHeight * .3) || (vel > .5 && dy > 30);
+    sh.style.transform = ''; scrim.style.opacity = '';
+    if (close) closeSheet();
+  };
+  sh.addEventListener('touchend', end, { passive: true });
+  sh.addEventListener('touchcancel', end, { passive: true });
+})();
 
 /* ============================== modo pré-visualização ============================== */
 /* Só é usado fora do Google (ex.: abrir o ficheiro no PC). Dados ficam no navegador. */
