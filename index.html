@@ -276,7 +276,7 @@ body.locked{overflow:hidden}
 <nav class="tabbar"><div class="tabbar-in">
   <button class="tab on" data-act="tab" data-tab="month"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Mês</button>
   <button class="fab" data-act="add" aria-label="Nova despesa"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
-  <button class="tab" data-act="tab" data-tab="year"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Ano</button>
+  <button class="tab" data-act="tab" data-tab="rec"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg>Recorrentes</button>
 </div></nav>
 
 <div class="scrim" id="scrim"></div>
@@ -489,20 +489,21 @@ async function loadMeta(id){
   const m = await gfetch(`${SHEETS_API}/${id}?fields=sheets.properties(sheetId,title)`);
   const sheetIds = {}; m.sheets.forEach(s => { sheetIds[s.properties.title] = s.properties.sheetId; });
   if (sheetIds.Despesas == null) { const e = new Error('Folha inválida'); e.status = 404; throw e; }
-  if (sheetIds.Extras == null) await addExtrasSheet(id, sheetIds);
+  if (sheetIds.Extras == null || sheetIds.Recorrentes == null) await addMissingSheets(id, sheetIds);
   return { id, sheetIds };
 }
-// folhas antigas: acrescenta a folha "Extras" (subsídios) e a coluna do salário em "Meses"
-async function addExtrasSheet(id, sheetIds){
-  const r = await gfetch(`${SHEETS_API}/${id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [
-    { addSheet: { properties: { title: 'Extras', gridProperties: { frozenRowCount: 1 } } } }
-  ] }) });
-  sheetIds.Extras = r.replies[0].addSheet.properties.sheetId;
-  await gfetch(`${SHEETS_API}/${id}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data: [
-    { range: 'Extras!A1:F1', values: [EXTRAS_HEAD] }, { range: 'Meses!C1', values: [['Salário (€)']] }
-  ] }) });
+// folhas antigas: acrescenta as folhas novas ("Extras", "Recorrentes") e a coluna do salário em "Meses"
+async function addMissingSheets(id, sheetIds){
+  const want = [['Extras', EXTRAS_HEAD, 'F'], ['Recorrentes', REC_HEAD, 'G']].filter(w => sheetIds[w[0]] == null);
+  const r = await gfetch(`${SHEETS_API}/${id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests:
+    want.map(w => ({ addSheet: { properties: { title: w[0], gridProperties: { frozenRowCount: 1 } } } })) }) });
+  want.forEach((w, i) => { sheetIds[w[0]] = r.replies[i].addSheet.properties.sheetId; });
+  const data = want.map(w => ({ range: `${w[0]}!A1:${w[2]}1`, values: [w[1]] }));
+  if (want.some(w => w[0] === 'Extras')) data.push({ range: 'Meses!C1', values: [['Salário (€)']] });
+  await gfetch(`${SHEETS_API}/${id}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data }) });
 }
 const EXTRAS_HEAD = ['ID', 'Ano', 'Data', 'Descrição', 'Valor (€)', 'Gasto (€)'];
+const REC_HEAD = ['ID', 'Descrição', 'Valor (€)', 'Categoria', 'Ativa', 'Último mês', 'Criado em'];
 async function createSS(){
   const head = cols => ({ values: cols.map(c => ({ userEnteredValue: { stringValue: c }, userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: .886, green: .941, blue: .91 } } })) });
   const sheet = (title, id, cols, extra) => ({ properties: { title, sheetId: id, gridProperties: { frozenRowCount: 1 } }, data: [{ rowData: [head(cols)].concat(extra || []) }] });
@@ -512,24 +513,25 @@ async function createSS(){
       sheet('Despesas', 0, ['ID', 'Data', 'Mês', 'Descrição', 'Valor (€)', 'Categoria', 'Criado em']),
       sheet('Meses', 1, ['Mês', 'Orçamento (€)', 'Salário (€)']),
       sheet('Extras', 4, EXTRAS_HEAD),
+      sheet('Recorrentes', 5, REC_HEAD),
       sheet('Objetivos', 2, ['Ano', 'Meta de poupança (€)']),
       sheet('Config', 3, ['Chave', 'Valor'], [{ values: [{ userEnteredValue: { stringValue: 'orcamentoPadrao' } }, { userEnteredValue: { numberValue: 400 } }] }])
     ]
   }) });
   const money = (sheetId, c) => ({ repeatCell: { range: { sheetId, startRowIndex: 1, startColumnIndex: c, endColumnIndex: c + 1 }, cell: { userEnteredFormat: { numberFormat: { type: 'CURRENCY', pattern: '#,##0.00 "€"' } } }, fields: 'userEnteredFormat.numberFormat' } });
   await gfetch(`${SHEETS_API}/${ss.spreadsheetId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [
-    money(0, 4), money(1, 1), money(1, 2), money(2, 1), money(4, 4), money(4, 5),
+    money(0, 4), money(1, 1), money(1, 2), money(2, 1), money(4, 4), money(4, 5), money(5, 2),
     { updateDimensionProperties: { range: { sheetId: 0, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 }, properties: { hiddenByUser: true }, fields: 'hiddenByUser' } },
     { updateDimensionProperties: { range: { sheetId: 0, dimension: 'COLUMNS', startIndex: 3, endIndex: 4 }, properties: { pixelSize: 220 }, fields: 'pixelSize' } }
   ] }) });
   await gfetch(`${DRIVE_API}/${ss.spreadsheetId}`, { method: 'PATCH', body: JSON.stringify({ appProperties: { orcamentoApp: '1' } }) });
-  return { id: ss.spreadsheetId, sheetIds: { Despesas: 0, Meses: 1, Objetivos: 2, Config: 3, Extras: 4 } };
+  return { id: ss.spreadsheetId, sheetIds: { Despesas: 0, Meses: 1, Objetivos: 2, Config: 3, Extras: 4, Recorrentes: 5 } };
 }
 
 const toStr = v => v == null ? '' : String(v);
 async function readAll(){
   const ss = await getSS();
-  const ranges = ['Despesas!A2:F', 'Meses!A2:C', 'Objetivos!A2:B', 'Config!A2:B', 'Extras!A2:F'].map(r => 'ranges=' + encodeURIComponent(r)).join('&');
+  const ranges = ['Despesas!A2:F', 'Meses!A2:C', 'Objetivos!A2:B', 'Config!A2:B', 'Extras!A2:F', 'Recorrentes!A2:F'].map(r => 'ranges=' + encodeURIComponent(r)).join('&');
   const r = await gfetch(`${SHEETS_API}/${ss.id}/values:batchGet?${ranges}&valueRenderOption=UNFORMATTED_VALUE`);
   const v = i => (r.valueRanges[i] && r.valueRanges[i].values) || [];
   const exp = v(0).map((x, i) => ({ row: i + 2, id: toStr(x[0]), date: toStr(x[1]), month: toStr(x[2]), desc: toStr(x[3]), cents: Math.round(Number(x[4]) * 100), category: CAT[x[5]] ? x[5] : 'Outros' }))
@@ -541,8 +543,10 @@ async function readAll(){
   const cfg = {}; v(3).forEach((x, i) => { cfg[toStr(x[0])] = { row: i + 2, value: x[1] }; });
   const dv = cfg.orcamentoPadrao ? Number(cfg.orcamentoPadrao.value) : 400;
   // próxima linha livre de cada folha (escrevemos sempre em posições exatas; o "append" do Google pode desalinhar colunas)
-  const next = { Despesas: v(0).length + 2, Meses: v(1).length + 2, Objetivos: v(2).length + 2, Config: v(3).length + 2, Extras: v(4).length + 2 };
-  return { ss, exp, months, goals, cfg, extras, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
+  const rec = v(5).map((x, i) => ({ row: i + 2, id: toStr(x[0]), desc: toStr(x[1]), cents: cents(x[2]) || 0, category: CAT[x[3]] ? x[3] : 'Outros',
+    active: !(x[4] === false || /^(false|não|nao|0)$/i.test(toStr(x[4]))), last: toStr(x[5]) })).filter(r => r.id);
+  const next = { Despesas: v(0).length + 2, Meses: v(1).length + 2, Objetivos: v(2).length + 2, Config: v(3).length + 2, Extras: v(4).length + 2, Recorrentes: v(5).length + 2 };
+  return { ss, exp, months, goals, cfg, extras, rec, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
 }
 const putValues = (ss, range, values) => gfetch(`${SHEETS_API}/${ss.id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { method: 'PUT', body: JSON.stringify({ values }) });
 // escreve linhas novas a partir da próxima linha livre, nas colunas exatas (A…)
@@ -557,10 +561,59 @@ const nowStamp = () => { const d = new Date(); return ymd(d) + ' ' + pad(d.getHo
 const cleanDesc = d => String(d == null ? '' : d).replace(/^[=+@\s]+/, '').trim().slice(0, 100);
 function checkCents(c){ c = Number(c); if (!Number.isInteger(c) || c === 0 || Math.abs(c) > 1e8) throw new Error('Valor inválido.'); return c; }
 
+const nextMonth = m => { const [a, b] = m.split('-').map(Number); const d = new Date(a, b, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); };
+// Despesas recorrentes: no dia 1 de cada mês (na primeira vez que a app abre) são lançadas no mês.
+// Se a app não abrir durante algum tempo, recupera os meses em falta (até 12).
+async function applyRecurring(D){
+  const rows = [], marks = [], newMonths = new Set(), stamp = nowStamp();
+  D.rec.filter(r => r.active && r.cents && /^\d{4}-\d{2}$/.test(r.last) && r.last < TODAY_MONTH).forEach(r => {
+    let m = r.last, n = 0;
+    while (m < TODAY_MONTH && n < 12){
+      m = nextMonth(m); n++;
+      rows.push([uuid(), m + '-01', m, r.desc, r.cents / 100, r.category, stamp]);
+      if (!D.months[m]) newMonths.add(m);
+    }
+    marks.push({ range: `Recorrentes!F${r.row}`, values: [[TODAY_MONTH]] });
+  });
+  if (!rows.length) return 0;
+  // marca primeiro como lançadas (evita duplicar se a app abrir em dois sítios ao mesmo tempo)
+  await gfetch(`${SHEETS_API}/${D.ss.id}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data: marks }) });
+  await appendRows(D, 'Despesas', rows);
+  if (newMonths.size) await appendRows(D, 'Meses', [...newMonths].sort().map(m => [m, D.def / 100]));
+  return rows.length;
+}
+
 async function api(action, p){
-  const D = await readAll(), ss = D.ss;
+  let D = await readAll(), auto = 0;
+  if (action === 'getMonth' || action === 'getYear' || action === 'getRecurring'){
+    auto = await applyRecurring(D);
+    if (auto) D = await readAll();
+  }
+  const ss = D.ss;
   switch (action){
-    case 'getMonth': return {
+    case 'getRecurring': return { items: D.rec.map(({ row, ...r }) => r), auto };
+    case 'saveRecurring': {
+      const desc = cleanDesc(p.desc); if (!desc) throw new Error('Descrição em falta.');
+      const cents = checkCents(p.cents), category = CAT[p.category] ? p.category : 'Outros', active = p.active !== false;
+      if (p.id){
+        const r = D.rec.find(x => x.id === p.id); if (!r) throw new Error('Despesa recorrente não encontrada — atualiza a app.');
+        // ao reativar, só volta a lançar a partir do próximo mês
+        const last = active && !r.active ? TODAY_MONTH : r.last;
+        await putValues(ss, `Recorrentes!B${r.row}:F${r.row}`, [[desc, cents / 100, category, active, last]]);
+        return { id: p.id };
+      }
+      const id = uuid(), [y, mo] = TODAY_MONTH.split('-').map(Number), prev = new Date(y, mo - 2, 1);
+      const last = p.applyNow ? prev.getFullYear() + '-' + pad(prev.getMonth() + 1) : TODAY_MONTH;
+      await appendRows(D, 'Recorrentes', [[id, desc, cents / 100, category, active, last, nowStamp()]]);
+      if (p.applyNow && active) await applyRecurring(await readAll());
+      return { id };
+    }
+    case 'deleteRecurring': {
+      const r = D.rec.find(x => x.id === p.id); if (!r) throw new Error('Despesa recorrente não encontrada — atualiza a app.');
+      await gfetch(`${SHEETS_API}/${ss.id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId: ss.sheetIds.Recorrentes, dimension: 'ROWS', startIndex: r.row - 1, endIndex: r.row } } }] }) });
+      return { id: r.id };
+    }
+    case 'getMonth': return { auto,
       month: p.month, budget: D.months[p.month] ? D.months[p.month].budget : D.def, defaultBudget: D.def,
       goal: D.goals[p.month.slice(0, 4)] ? D.goals[p.month.slice(0, 4)].goal : 0,
       expenses: D.exp.filter(e => e.month === p.month), email: ACCOUNT.email };
@@ -656,12 +709,18 @@ async function call(action, p){
 /* ============================== estado ============================== */
 const now = new Date();
 const TODAY = ymd(now), TODAY_MONTH = TODAY.slice(0, 7);
-const S = { view:'month', month:TODAY_MONTH, year:now.getFullYear(), data:null, yearData:null, sim:newSim(), filter:null, seq:0 };
+const S = { view:'month', month:TODAY_MONTH, year:now.getFullYear(), data:null, yearData:null, recData:null, sim:newSim(), filter:null, seq:0 };
 function newSim(){ return { on:false, off:new Set(), extra:[] }; }
+const autoToast = n => { if (n) toast(n === 1 ? '1 despesa recorrente adicionada' : n + ' despesas recorrentes adicionadas'); };
 
 async function loadMonth(){
   const req = ++S.seq;
-  try { const d = await call('getMonth', { month:S.month }); if (req !== S.seq) return; S.data = d; render(); }
+  try { const d = await call('getMonth', { month:S.month }); if (req !== S.seq) return; S.data = d; render(); autoToast(d.auto); }
+  catch (e) { if (!$('#login').hidden) return; toast(e.message); }
+}
+async function loadRec(){
+  const req = ++S.seq;
+  try { const d = await call('getRecurring'); if (req !== S.seq) return; S.recData = d; if (d.auto) S.data = null; render(); autoToast(d.auto); }
   catch (e) { if (!$('#login').hidden) return; toast(e.message); }
 }
 async function loadYear(){
@@ -669,7 +728,7 @@ async function loadYear(){
   try { const d = await call('getYear', { year:S.year }); if (req !== S.seq) return; S.yearData = d; render(); }
   catch (e) { if (!$('#login').hidden) return; toast(e.message); }
 }
-const load = () => S.view === 'month' ? loadMonth() : loadYear();
+const load = () => S.view === 'month' ? loadMonth() : S.view === 'rec' ? loadRec() : loadYear();
 
 /* ============================== ecrã de login ============================== */
 function showLogin(expired){
@@ -696,9 +755,11 @@ async function doLogin(choose){
 /* ============================== render ============================== */
 function render(){
   document.body.classList.toggle('sim', S.view === 'month' && S.sim.on);
-  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === S.view));
-  $('#title').textContent = S.view === 'month' ? monthLabel(S.month) : String(S.year);
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === (S.view === 'year' ? 'month' : S.view)));
+  $('#title').textContent = S.view === 'month' ? monthLabel(S.month) : S.view === 'rec' ? 'Recorrentes' : String(S.year);
+  document.querySelectorAll('[data-act="prev"],[data-act="next"]').forEach(b => { b.style.visibility = S.view === 'rec' ? 'hidden' : ''; });
   if (S.view === 'month') (S.data && S.data.month === S.month) ? renderMonth() : skeleton();
+  else if (S.view === 'rec') S.recData ? renderRec() : skeleton();
   else (S.yearData && S.yearData.year === S.year) ? renderYear() : skeleton();
   const h = $('#view .hero');
   if (h) h.insertAdjacentHTML('beforeend', `<div class="hero-dots" aria-hidden="true"><i class="${S.view === 'month' ? 'on' : ''}"></i><i class="${S.view === 'year' ? 'on' : ''}"></i></div>`);
@@ -1053,6 +1114,59 @@ async function saveSettings(btn){
   } catch (e) { btn.disabled = false; toast(e.message); }
 }
 
+/* ---------- despesas recorrentes ---------- */
+function renderRec(){
+  const items = S.recData.items, act = items.filter(r => r.active);
+  const total = act.reduce((s, r) => s + r.cents, 0);
+  const nm = MESES[+nextMonth(TODAY_MONTH).slice(5) - 1].toLowerCase();
+  const row = r => `
+      <button class="tx ${r.active ? '' : 'off'}" data-rec="${esc(r.id)}">${icon(r.category)}
+        <div class="tx-main"><b>${esc(r.desc)}</b><small>${esc(r.category)}${r.active ? '' : ' · em pausa'}</small></div>
+        <span class="amt num">${eur(r.cents)}</span></button>`;
+  $('#view').innerHTML = `
+  <section class="card">
+    <div class="card-h"><h3>Total por mês</h3><span class="hint" style="margin:0">${act.length} ${act.length === 1 ? 'despesa' : 'despesas'}</span></div>
+    <div class="num" style="font-size:34px;font-weight:800;line-height:1.1;letter-spacing:-.02em;margin-top:6px">${eur(total)}</div>
+    <p class="hint" style="margin:6px 0 0">Lançadas automaticamente no dia 1 de cada mês. Próximo: 1 de ${nm}.</p>
+  </section>
+  ${items.length ? `<div class="group"><div class="txs">${act.map(row).join('')}${items.filter(r => !r.active).map(row).join('')}</div></div>`
+    : `<div class="empty">${icon('Subscrições')}<b>Sem despesas recorrentes</b><p>Ginásio, Apple, Netflix… adiciona as que pagas todos os meses.</p></div>`}
+  <button class="btn primary inline" data-act="addRec" style="margin:4px auto 0;display:block">Adicionar recorrente</button>`;
+}
+function openRec(r){
+  const isNew = !r;
+  r = r || { desc:'', cents:0, category:'Subscrições', active:true };
+  F = { mode:'rec', id:r.id || null, cat:r.category, active:r.active };
+  openSheet(`
+    <div class="sheet-h"><button data-act="close">Cancelar</button><b>${isNew ? 'Nova recorrente' : 'Editar recorrente'}</b><button data-act="saveRec" style="color:var(--accent);font-weight:700">Guardar</button></div>
+    <span class="lbl">Descrição</span>
+    <input class="field" id="rDesc" maxlength="100" value="${esc(r.desc)}" autocomplete="off">
+    <span class="lbl">Valor por mês</span>
+    <input class="field num" id="rVal" inputmode="decimal" value="${r.cents ? num(r.cents) : ''}" autocomplete="off">
+    <span class="lbl">Categoria</span>
+    <div class="cats">${CATS.map(c => `<button class="cat-pick ${c === F.cat ? 'on' : ''}" data-pick="${c}" style="--c:${CAT[c].c}">${icon(c, 'sm')}${c}</button>`).join('')}</div>
+    ${isNew ? `<label class="check"><input type="checkbox" id="rNow"> Lançar também em ${MESES[+TODAY_MONTH.slice(5) - 1].toLowerCase()}</label>`
+      : `<label class="check"><input type="checkbox" id="rAct"${r.active ? ' checked' : ''}> Ativa (lançar todos os meses)</label>`}
+    ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad)" data-act="delRec">Eliminar</button>`}`);
+}
+async function saveRec(btn){
+  const desc = $('#rDesc').value.trim(), cents = parseAmount($('#rVal').value);
+  if (!desc) return toast('Descrição em falta.');
+  if (cents == null || cents <= 0) return toast('Valor inválido.');
+  const applyNow = !!($('#rNow') && $('#rNow').checked), active = $('#rAct') ? $('#rAct').checked : true;
+  btn.disabled = true;
+  try {
+    await call('saveRecurring', { id:F.id, desc, cents, category:F.cat, active, applyNow });
+    closeSheet(); toast(applyNow ? 'Guardada e lançada neste mês' : 'Guardada'); if (applyNow) S.data = null; loadRec();
+  } catch (e) { btn.disabled = false; toast(e.message); }
+}
+async function delRec(btn){
+  if (btn.dataset.sure !== '1'){ btn.dataset.sure = '1'; btn.textContent = 'Toca outra vez para eliminar'; return; }
+  btn.disabled = true;
+  try { await call('deleteRecurring', { id:F.id }); closeSheet(); toast('Eliminada'); loadRec(); }
+  catch (e) { btn.disabled = false; toast(e.message); }
+}
+
 /* ---------- salário do mês (tabela "Mês a mês") ---------- */
 function salaryBreakdown(r, salary){
   const guardar = salary != null ? salary - r.budget : 0, guardado = guardar + r.sobrou;
@@ -1133,9 +1247,11 @@ function shift(dir){
 
 /* ============================== eventos ============================== */
 document.addEventListener('click', ev => {
-  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra]');
+  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra],[data-rec]');
   if (!el) return;
   const ds = el.dataset;
+  if (ds.rec){ const r = S.recData.items.find(x => x.id === ds.rec); if (r) openRec(r); return; }
+  if (ds.pick && F && F.mode === 'rec'){ F.cat = ds.pick; buzz(); document.querySelectorAll('.cat-pick').forEach(b => b.classList.toggle('on', b.dataset.pick === F.cat)); return; }
   if (ds.sal){ openSalary(ds.sal); return; }
   if (ds.extra){ const e = (S.yearData.extras || []).find(x => x.id === ds.extra); if (e) openExtra(e); return; }
   if (ds.key){ pressKey(ds.key); return; }
@@ -1157,7 +1273,7 @@ document.addEventListener('click', ev => {
     case 'next': shift(1); break;
     case 'settings': openSettings(); break;
     case 'close': closeSheet(); break;
-    case 'add': if (S.view === 'year'){ S.view = 'month'; render(); if (!S.data || S.data.month !== S.month) loadMonth(); } openForm('add'); break;
+    case 'add': if (S.view === 'rec'){ openRec(null); break; } if (S.view === 'year'){ S.view = 'month'; render(); if (!S.data || S.data.month !== S.month) loadMonth(); } openForm('add'); break;
     case 'bulk': openBulk(); break;
     case 'bulkGo': submitBulk(el); break;
     case 'submit': submitForm(el); break;
@@ -1167,6 +1283,9 @@ document.addEventListener('click', ev => {
     case 'addExtra': openExtra(null); break;
     case 'saveExtra': saveExtra(el); break;
     case 'delExtra': delExtra(el); break;
+    case 'addRec': openRec(null); break;
+    case 'saveRec': saveRec(el); break;
+    case 'delRec': delRec(el); break;
     case 'clearFilter': S.filter = null; render(); break;
     case 'sim': S.sim = S.sim.on ? newSim() : Object.assign(newSim(), { on:true }); render(); break;
     case 'tab':
@@ -1233,6 +1352,15 @@ const Mock = (() => {
         r = { id:rec.id }; break;
       }
       case 'deleteExtra': d.extras = (d.extras || []).filter(x => x.id !== p.id); r = { id:p.id }; break;
+      case 'getRecurring': r = { items:d.rec || [], auto:0 }; break;
+      case 'saveRecurring': {
+        d.rec = d.rec || [];
+        const rec = { id:p.id || 'r' + (d.n++), desc:p.desc, cents:p.cents, category:p.category, active:p.active !== false, last:TODAY_MONTH };
+        const i = d.rec.findIndex(x => x.id === rec.id); if (i >= 0) d.rec[i] = rec; else d.rec.push(rec);
+        if (p.applyNow && !p.id) d.exp.push({ id:'n' + (d.n++), date:TODAY_MONTH + '-01', month:TODAY_MONTH, desc:p.desc, cents:p.cents, category:p.category });
+        r = { id:rec.id }; break;
+      }
+      case 'deleteRecurring': d.rec = (d.rec || []).filter(x => x.id !== p.id); r = { id:p.id }; break;
       default: throw new Error('Ação desconhecida.');
     }
     save(d); return JSON.parse(JSON.stringify(r));
@@ -1246,7 +1374,16 @@ else if (tokenValid() && ACCOUNT.email) { loadMonth(); initAuth().catch(() => {}
 else { showLogin(false); initAuth().catch(e => { $('#loginErr').textContent = e.message; $('#loginErr').hidden = false; }); }
 // ao voltar à app depois de muito tempo, pede para continuar se a sessão expirou
 document.addEventListener('visibilitychange', () => { if (!DEMO && document.visibilityState === 'visible' && $('#login').hidden && !tokenValid()) showLogin(true); });
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+// versão nova publicada → o service worker novo assume e a app recarrega sozinha (uma vez)
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  const hadSW = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadSW && !reloaded && !F) { reloaded = true; location.reload(); } });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => {
+    r.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') r.update().catch(() => {}); });
+  }).catch(() => {});
+}
 </script>
 </body>
 </html>
