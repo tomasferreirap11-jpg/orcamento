@@ -73,6 +73,9 @@ main{max-width:520px;margin:0 auto;padding:4px 16px 0;display:flex;flex-directio
 .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .pills{display:flex;flex-wrap:wrap;gap:8px}
 .pill.danger{color:var(--bad)}
+.share-row{display:flex;gap:8px;align-items:center}
+.share-row .field{flex:1;min-width:0;font-size:13px}
+.share-row .btn{flex:none;white-space:nowrap}
 .tx .pill{flex:none}
 .months-pick{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
 .months-pick .pill{padding:9px 0;text-align:center;font-size:13px}
@@ -330,7 +333,7 @@ body.sheet-lock{position:fixed;left:0;right:0;overflow:hidden}
 <section class="login" id="login" hidden>
   <img class="logo" src="icon-192.png" alt="">
   <h2>Orçamento</h2>
-  <p id="loginMsg">O teu orçamento mensal e objetivo anual, guardados no teu Google Drive.</p>
+  <p id="loginMsg">Sabe a cada momento quanto ainda podes gastar — e vê o teu dinheiro a crescer até aos teus objetivos.</p>
   <button class="gbtn" id="loginBtn" data-act="login">
     <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.2l7.9 6.2C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17.1z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.5 0 20.1 0 24s1 7.5 2.7 10.8l7.8-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.8 6.2C6.6 42.6 14.6 48 24 48z"/></svg>
     <span id="loginLabel">Entrar com Google</span>
@@ -630,7 +633,7 @@ async function createSS(){
       sheet('Fundos', 7, FUNDS_HEAD),
       sheet('Movimentos', 8, MOVES_HEAD),
       sheet('Objetivos', 2, ['Ano', 'Meta de poupança (€)']),
-      sheet('Config', 3, ['Chave', 'Valor'], [{ values: [{ userEnteredValue: { stringValue: 'orcamentoPadrao' } }, { userEnteredValue: { numberValue: 400 } }] }])
+      sheet('Config', 3, ['Chave', 'Valor'])
     ]
   }) });
   const money = (sheetId, c) => ({ repeatCell: { range: { sheetId, startRowIndex: 1, startColumnIndex: c, endColumnIndex: c + 1 }, cell: { userEnteredFormat: { numberFormat: { type: 'CURRENCY', pattern: '#,##0.00 "€"' } } }, fields: 'userEnteredFormat.numberFormat' } });
@@ -658,7 +661,7 @@ async function readAll(){
   const extras = v(4).map((x, i) => ({ row: i + 2, id: toStr(x[0]), year: toStr(x[1]), date: toStr(x[2]), desc: toStr(x[3]), cents: cents(x[4]) || 0, spent: cents(x[5]) || 0 })).filter(e => e.id);
   const goals = {}; v(2).forEach((x, i) => { if (x[0] !== '' && x[0] != null) goals[toStr(x[0])] = { row: i + 2, goal: Math.round(Number(x[1]) * 100) }; });
   const cfg = {}; v(3).forEach((x, i) => { cfg[toStr(x[0])] = { row: i + 2, value: x[1] }; });
-  const dv = cfg.orcamentoPadrao ? Number(cfg.orcamentoPadrao.value) : 400;
+  const dv = cfg.orcamentoPadrao ? Number(cfg.orcamentoPadrao.value) : 0;   // conta nova: sem orçamento até o utilizador o definir
   // próxima linha livre de cada folha (escrevemos sempre em posições exatas; o "append" do Google pode desalinhar colunas)
   const rec = v(5).map((x, i) => ({ row: i + 2, id: toStr(x[0]), desc: toStr(x[1]), cents: cents(x[2]) || 0, category: CAT[x[3]] ? x[3] : 'Outros',
     active: !(x[4] === false || /^(false|não|nao|0)$/i.test(toStr(x[4]))), last: toStr(x[5]),
@@ -666,7 +669,7 @@ async function readAll(){
   const funds = v(7).map((x, i) => ({ row: i + 2, id: toStr(x[0]), name: toStr(x[1]), color: toStr(x[2]) || '#6366f1' })).filter(f => f.id);
   const moves = v(8).map((x, i) => ({ row: i + 2, id: toStr(x[0]), fund: toStr(x[1]), date: toStr(x[2]), desc: toStr(x[3]), cents: cents(x[4]) || 0, category: toStr(x[5]) })).filter(m => m.id && m.cents);
   const next = { Despesas: v(0).length + 2, Meses: v(1).length + 2, Objetivos: v(2).length + 2, Config: v(3).length + 2, Extras: v(4).length + 2, Recorrentes: v(5).length + 2, Categorias: v(6).length + 2, Fundos: v(7).length + 2, Movimentos: v(8).length + 2 };
-  return { ss, exp, months, goals, cfg, extras, rec, cats, funds, moves, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
+  return { ss, exp, months, goals, cfg, extras, rec, cats, funds, moves, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 0) * 100) };
 }
 const putValues = (ss, range, values) => gfetch(`${SHEETS_API}/${ss.id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { method: 'PUT', body: JSON.stringify({ values }) });
 // escreve linhas novas a partir da próxima linha livre, nas colunas exatas (A…)
@@ -970,7 +973,7 @@ function showLogin(expired){
   const known = !!ACCOUNT.email;
   $('#loginLabel').textContent = known ? 'Continuar como ' + ACCOUNT.email : 'Entrar com Google';
   $('#loginOther').hidden = !known;
-  $('#loginMsg').textContent = expired ? 'A sessão expirou por segurança. Toca para continuar.' : 'O teu orçamento mensal e objetivo anual, guardados no teu Google Drive.';
+  $('#loginMsg').textContent = expired ? 'A sessão expirou por segurança. Toca para continuar.' : 'Sabe a cada momento quanto ainda podes gastar — e vê o teu dinheiro a crescer até aos teus objetivos.';
   $('#loginErr').hidden = true; $('#loginBtn').hidden = false;
   $('#login').hidden = false; document.body.classList.add('locked');
 }
@@ -1193,7 +1196,13 @@ function renderMonth(target){
 
   (target || $('#view')).innerHTML = `
   ${sim ? `<div class="simbar"><span>Modo simulação: toca numa despesa para a retirar ou usa + para testar uma nova. Nada é gravado.</span><button data-act="sim">Sair</button></div>` : ''}
-  <section class="hero ${heroCls}">
+  ${budget === 0 && !sim ? `<section class="hero">
+    <div class="hero-top"><span class="eyebrow">${monthLabel(S.month)}</span></div>
+    <div class="big" style="font-size:24px;margin-top:8px;white-space:normal">Quanto queres gastar este mês?</div>
+    <div class="hero-sub">Define o teu orçamento e vê a cada despesa quanto te sobra.</div>
+    <div class="stats"><button class="stat tap" data-act="settings" style="text-align:left;color:#fff"><small>Começar</small><b>Definir orçamento →</b></button>
+      ${spent ? `<div class="stat"><small>Gasto</small><b class="num">${eur(spent)}</b></div>` : ''}</div>
+  </section>` : `<section class="hero ${heroCls}">
     <div class="hero-top"><span class="eyebrow">Valor restante</span></div>
     <div class="hero-main">
       <div style="min-width:0"><div class="big num">${eurBig(left)}</div>
@@ -1205,7 +1214,7 @@ function renderMonth(target){
       <div class="stat"><small>Gasto</small><b class="num">${eur(spent)}</b></div>
       ${perDay != null ? `<div class="stat"><small>Por dia (${daysLeft}d)</small><b class="num">${eur(perDay)}</b></div>` : ''}
     </div>
-  </section>
+  </section>`}
 
   ${cats.length ? `<div class="rail">${cats.map(([k, v]) => `
     <button class="cat-chip ${S.filter === k ? 'on' : ''}" style="--c:${CAT[k].c}" data-cat="${esc(k)}">${icon(k, 'sm')}
@@ -1468,8 +1477,8 @@ function openSettings(){
   openSheet(`
     <div class="sheet-h"><button data-act="close">Cancelar</button><b>Definições</b><button data-act="saveSettings" style="color:var(--accent);font-weight:700">Guardar</button></div>
     ${isMonth && d ? `<span class="lbl">Orçamento de ${monthLabel(ym)}</span>
-      <input class="field num" id="sBud" inputmode="none" readonly data-kpf value="${num(d.budget)}">
-      <label class="check"><input type="checkbox" id="sDef"${d.budget === d.defaultBudget ? ' checked' : ''}> Usar também nos próximos meses</label>` : ''}
+      <input class="field num" id="sBud" inputmode="none" readonly data-kpf value="${d.budget ? num(d.budget) : ''}">
+      <label class="check"><input type="checkbox" id="sDef"${d.budget === d.defaultBudget || !d.defaultBudget ? ' checked' : ''}> Usar também nos próximos meses</label>` : ''}
     ${S.view !== 'year' || !S.yearData ? '' : `<span class="lbl">Objetivo de poupança ${year}</span>
     <input class="field num" id="sGoal" inputmode="none" readonly data-kpf value="${goal ? num(goal) : ''}">`}
     <div style="height:18px"></div>
@@ -1489,7 +1498,7 @@ async function saveSettings(btn){
   let bud = null, def = false;
   if ($('#sBud')){
     const bt = $('#sBud').value.trim();
-    bud = /^0+([.,]0*)?$/.test(bt) ? 0 : parseAmount(bt);
+    bud = bt === '' || /^0+([.,]0*)?$/.test(bt) ? 0 : parseAmount(bt);
     if (bud == null || bud < 0) return toast('Orçamento inválido.');
     def = $('#sDef').checked;
   }
@@ -1503,10 +1512,18 @@ async function saveSettings(btn){
 }
 
 /* ---------- administração: utilizadores registados e bloqueio ---------- */
+const APP_URL = 'https://tomasferreirap11-jpg.github.io/orcamento/';
+async function copyLink(){
+  try { await navigator.clipboard.writeText(APP_URL); toast('Link copiado'); }
+  catch (e) { const i = $('#admLink'); if (i) { i.focus(); i.select(); } toast('Seleciona e copia o link'); }
+}
 async function openAdmin(){
   F = { mode:'admin', users:null };
   openSheet(`
     <div class="sheet-h"><button data-act="close">Fechar</button><b>Administração</b><button style="visibility:hidden" aria-hidden="true" tabindex="-1">Fechar</button></div>
+    <span class="lbl">Convidar pessoas</span>
+    <div class="share-row"><input class="field" id="admLink" readonly value="${esc(APP_URL)}" aria-label="Link da app"><button class="btn primary inline" data-act="copyLink">Copiar link</button></div>
+    <div style="height:14px"></div>
     <div id="admList"><div class="sk" style="height:64px;margin-bottom:8px"></div><div class="sk" style="height:64px"></div></div>`);
   try {
     const d = DEMO ? { users:[{ email:'pré-visualização', name:'Tu', first:'2026-11-22 10:00', last:'2026-11-23 21:00', blocked:false, admin:true }, { email:'amigo@gmail.com', name:'Amigo', first:'2026-11-23 09:12', last:'2026-11-23 09:40', blocked:false, admin:false }] } : await regCall('users');
@@ -1941,6 +1958,7 @@ document.addEventListener('click', ev => {
     case 'catBack': F.back(null); break;
     case 'cats': openCatManager(); break;
     case 'admin': openAdmin(); break;
+    case 'copyLink': copyLink(); break;
     case 'addRec': openRec(null); break;
     case 'addRecY': openRec(null, 'anual'); break;
     case 'newFund': openFund(null); break;
@@ -2041,14 +2059,14 @@ $('#scrim').addEventListener('touchmove', ev => ev.preventDefault(), { passive: 
 /* Só é usado fora do Google (ex.: abrir o ficheiro no PC). Dados ficam no navegador. */
 const Mock = (() => {
   const K = 'orcamento-preview-v2';
-  const seed = [['Apple',299],['Ginásio',3990],['Via Verde',219],['Banco',104],['Continente Bonecos',838],['Via Verde',35],['Zara',11200],['Ikea',499],['Permanente',2616],['Marianita',560],['Imposto transferência MBWay',29],['Espuma',364],['Netflix',899],['Lanche Vi Açúcar',1075],['Portagem',120],['Claude',2214],['Taxa MBWay',128],['Via Verde',298],['Farmácia',1295]];
+  const seed = [['Supermercado',4235],['Café',180],['Combustível',5200],['Ginásio',3000],['Farmácia',890],['Restaurante',2450],['Streaming',999],['Transportes',1500]];
   const dayOf = i => { const d = new Date(now); d.setDate(Math.max(1, now.getDate() - Math.floor((seed.length - 1 - i) / 2))); return ymd(d); };
   function load(){
     try { const d = JSON.parse(localStorage.getItem(K)); if (d) return d; } catch (e) {}
     const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1), pm = prev.getFullYear() + '-' + pad(prev.getMonth() + 1);
-    return { def:40000, months:{ [pm]:40000, [TODAY_MONTH]:40000 }, goals:{ [now.getFullYear()]:120000 }, n:100,
+    return { def:50000, months:{ [pm]:50000, [TODAY_MONTH]:50000 }, goals:{ [now.getFullYear()]:300000 }, n:100,
       exp: seed.map((s, i) => ({ id:'m' + i, date:dayOf(i), month:TODAY_MONTH, desc:s[0], cents:s[1], category:guessCat(s[0]) }))
-        .concat([['Continente',8730],['Via Verde',1840],['Netflix',899],['Restaurante',4250],['Ginásio',3990],['Zara',6999]].map((s, i) => ({ id:'o' + i, date:pm + '-0' + (i + 1), month:pm, desc:s[0], cents:s[1], category:guessCat(s[0]) }))) };
+        .concat([['Supermercado',8730],['Portagens',1840],['Streaming',999],['Restaurante',4250],['Ginásio',3000],['Roupa',6999]].map((s, i) => ({ id:'o' + i, date:pm + '-0' + (i + 1), month:pm, desc:s[0], cents:s[1], category:guessCat(s[0]) }))) };
   }
   function save(d){ try { localStorage.setItem(K, JSON.stringify(d)); } catch (e) {} }
   return function (a, p){
