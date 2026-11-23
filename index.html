@@ -62,6 +62,13 @@ main{max-width:520px;margin:0 auto;padding:4px 16px 0;display:flex;flex-directio
 .hero::after{content:"";position:absolute;right:-60px;top:-70px;width:220px;height:220px;border-radius:50%;background:radial-gradient(closest-side,rgba(255,255,255,.16),transparent);pointer-events:none}
 .hero.neg{--hero-a:#7a1d14;--hero-b:#c4402f}
 .hero.sim{--hero-a:#3b2a8f;--hero-b:#7656ee}
+.hero.funds{--hero-a:#1b2a5e;--hero-b:#3d5bd9}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--press);padding:4px;border-radius:14px}
+.seg button{padding:10px;border-radius:11px;font-weight:700;font-size:14px;color:var(--muted)}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.pills{display:flex;flex-wrap:wrap;gap:8px}
+.amt.in{color:var(--accent)}
+.fund-dot{width:10px;height:10px;border-radius:50%;background:var(--c);display:inline-block;margin-right:8px;vertical-align:1px}
 .hero-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .eyebrow{font-size:13px;font-weight:600;opacity:.85}
 .chip-w{font-size:12px;font-weight:700;padding:6px 11px;border-radius:99px;background:rgba(255,255,255,.16);color:#fff;position:relative;z-index:1}
@@ -534,12 +541,12 @@ async function loadMeta(id){
   const m = await gfetch(`${SHEETS_API}/${id}?fields=sheets.properties(sheetId,title)`);
   const sheetIds = {}; m.sheets.forEach(s => { sheetIds[s.properties.title] = s.properties.sheetId; });
   if (sheetIds.Despesas == null) { const e = new Error('Folha inválida'); e.status = 404; throw e; }
-  if (sheetIds.Extras == null || sheetIds.Recorrentes == null || sheetIds.Categorias == null) await addMissingSheets(id, sheetIds);
+  if (['Extras', 'Recorrentes', 'Categorias', 'Fundos', 'Movimentos'].some(k => sheetIds[k] == null)) await addMissingSheets(id, sheetIds);
   return { id, sheetIds };
 }
 // folhas antigas: acrescenta as folhas novas ("Extras", "Recorrentes") e a coluna do salário em "Meses"
 async function addMissingSheets(id, sheetIds){
-  const want = [['Extras', EXTRAS_HEAD, 'F'], ['Recorrentes', REC_HEAD, 'G'], ['Categorias', CATS_HEAD, 'D']].filter(w => sheetIds[w[0]] == null);
+  const want = [['Extras', EXTRAS_HEAD, 'F'], ['Recorrentes', REC_HEAD, 'J'], ['Categorias', CATS_HEAD, 'D'], ['Fundos', FUNDS_HEAD, 'C'], ['Movimentos', MOVES_HEAD, 'F']].filter(w => sheetIds[w[0]] == null);
   const r = await gfetch(`${SHEETS_API}/${id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests:
     want.map(w => ({ addSheet: { properties: { title: w[0], gridProperties: { frozenRowCount: 1 } } } })) }) });
   want.forEach((w, i) => { sheetIds[w[0]] = r.replies[i].addSheet.properties.sheetId; });
@@ -548,8 +555,10 @@ async function addMissingSheets(id, sheetIds){
   await gfetch(`${SHEETS_API}/${id}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data }) });
 }
 const EXTRAS_HEAD = ['ID', 'Ano', 'Data', 'Descrição', 'Valor (€)', 'Gasto (€)'];
-const REC_HEAD = ['ID', 'Descrição', 'Valor (€)', 'Categoria', 'Ativa', 'Último mês', 'Criado em'];
+const REC_HEAD = ['ID', 'Descrição', 'Valor (€)', 'Categoria', 'Ativa', 'Último lançamento', 'Criado em', 'Frequência', 'Data (MM-DD)', 'Fundo'];
 const CATS_HEAD = ['Nome', 'Cor', 'Ícone', 'Palavras-chave'];
+const FUNDS_HEAD = ['ID', 'Nome', 'Cor'];
+const MOVES_HEAD = ['ID', 'Fundo', 'Data', 'Descrição', 'Valor (€)', 'Categoria'];
 async function createSS(){
   const head = cols => ({ values: cols.map(c => ({ userEnteredValue: { stringValue: c }, userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: .886, green: .941, blue: .91 } } })) });
   const sheet = (title, id, cols, extra) => ({ properties: { title, sheetId: id, gridProperties: { frozenRowCount: 1 } }, data: [{ rowData: [head(cols)].concat(extra || []) }] });
@@ -561,24 +570,26 @@ async function createSS(){
       sheet('Extras', 4, EXTRAS_HEAD),
       sheet('Recorrentes', 5, REC_HEAD),
       sheet('Categorias', 6, CATS_HEAD),
+      sheet('Fundos', 7, FUNDS_HEAD),
+      sheet('Movimentos', 8, MOVES_HEAD),
       sheet('Objetivos', 2, ['Ano', 'Meta de poupança (€)']),
       sheet('Config', 3, ['Chave', 'Valor'], [{ values: [{ userEnteredValue: { stringValue: 'orcamentoPadrao' } }, { userEnteredValue: { numberValue: 400 } }] }])
     ]
   }) });
   const money = (sheetId, c) => ({ repeatCell: { range: { sheetId, startRowIndex: 1, startColumnIndex: c, endColumnIndex: c + 1 }, cell: { userEnteredFormat: { numberFormat: { type: 'CURRENCY', pattern: '#,##0.00 "€"' } } }, fields: 'userEnteredFormat.numberFormat' } });
   await gfetch(`${SHEETS_API}/${ss.spreadsheetId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [
-    money(0, 4), money(1, 1), money(1, 2), money(2, 1), money(4, 4), money(4, 5), money(5, 2),
+    money(0, 4), money(1, 1), money(1, 2), money(2, 1), money(4, 4), money(4, 5), money(5, 2), money(8, 4),
     { updateDimensionProperties: { range: { sheetId: 0, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 }, properties: { hiddenByUser: true }, fields: 'hiddenByUser' } },
     { updateDimensionProperties: { range: { sheetId: 0, dimension: 'COLUMNS', startIndex: 3, endIndex: 4 }, properties: { pixelSize: 220 }, fields: 'pixelSize' } }
   ] }) });
   await gfetch(`${DRIVE_API}/${ss.spreadsheetId}`, { method: 'PATCH', body: JSON.stringify({ appProperties: { orcamentoApp: '1' } }) });
-  return { id: ss.spreadsheetId, sheetIds: { Despesas: 0, Meses: 1, Objetivos: 2, Config: 3, Extras: 4, Recorrentes: 5, Categorias: 6 } };
+  return { id: ss.spreadsheetId, sheetIds: { Despesas: 0, Meses: 1, Objetivos: 2, Config: 3, Extras: 4, Recorrentes: 5, Categorias: 6, Fundos: 7, Movimentos: 8 } };
 }
 
 const toStr = v => v == null ? '' : String(v);
 async function readAll(){
   const ss = await getSS();
-  const ranges = ['Despesas!A2:F', 'Meses!A2:C', 'Objetivos!A2:B', 'Config!A2:B', 'Extras!A2:F', 'Recorrentes!A2:F', 'Categorias!A2:D'].map(r => 'ranges=' + encodeURIComponent(r)).join('&');
+  const ranges = ['Despesas!A2:F', 'Meses!A2:C', 'Objetivos!A2:B', 'Config!A2:B', 'Extras!A2:F', 'Recorrentes!A2:J', 'Categorias!A2:D', 'Fundos!A2:C', 'Movimentos!A2:F'].map(r => 'ranges=' + encodeURIComponent(r)).join('&');
   const r = await gfetch(`${SHEETS_API}/${ss.id}/values:batchGet?${ranges}&valueRenderOption=UNFORMATTED_VALUE`);
   const v = i => (r.valueRanges[i] && r.valueRanges[i].values) || [];
   const cats = v(6).map((x, i) => ({ row: i + 2, name: cleanDesc(x[0]).slice(0, 30), color: toStr(x[1]), icon: toStr(x[2]), words: toStr(x[3]).split(',').map(w => w.trim()).filter(Boolean) })).filter(c => c.name);
@@ -593,9 +604,12 @@ async function readAll(){
   const dv = cfg.orcamentoPadrao ? Number(cfg.orcamentoPadrao.value) : 400;
   // próxima linha livre de cada folha (escrevemos sempre em posições exatas; o "append" do Google pode desalinhar colunas)
   const rec = v(5).map((x, i) => ({ row: i + 2, id: toStr(x[0]), desc: toStr(x[1]), cents: cents(x[2]) || 0, category: CAT[x[3]] ? x[3] : 'Outros',
-    active: !(x[4] === false || /^(false|não|nao|0)$/i.test(toStr(x[4]))), last: toStr(x[5]) })).filter(r => r.id);
-  const next = { Despesas: v(0).length + 2, Meses: v(1).length + 2, Objetivos: v(2).length + 2, Config: v(3).length + 2, Extras: v(4).length + 2, Recorrentes: v(5).length + 2, Categorias: v(6).length + 2 };
-  return { ss, exp, months, goals, cfg, extras, rec, cats, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
+    active: !(x[4] === false || /^(false|não|nao|0)$/i.test(toStr(x[4]))), last: toStr(x[5]),
+    freq: toStr(x[7]) === 'anual' ? 'anual' : 'mensal', day: /^\d{2}-\d{2}$/.test(toStr(x[8])) ? toStr(x[8]) : '01-01', fund: toStr(x[9]) })).filter(r => r.id);
+  const funds = v(7).map((x, i) => ({ row: i + 2, id: toStr(x[0]), name: toStr(x[1]), color: toStr(x[2]) || '#6366f1' })).filter(f => f.id);
+  const moves = v(8).map((x, i) => ({ row: i + 2, id: toStr(x[0]), fund: toStr(x[1]), date: toStr(x[2]), desc: toStr(x[3]), cents: cents(x[4]) || 0, category: toStr(x[5]) })).filter(m => m.id && m.cents);
+  const next = { Despesas: v(0).length + 2, Meses: v(1).length + 2, Objetivos: v(2).length + 2, Config: v(3).length + 2, Extras: v(4).length + 2, Recorrentes: v(5).length + 2, Categorias: v(6).length + 2, Fundos: v(7).length + 2, Movimentos: v(8).length + 2 };
+  return { ss, exp, months, goals, cfg, extras, rec, cats, funds, moves, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
 }
 const putValues = (ss, range, values) => gfetch(`${SHEETS_API}/${ss.id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { method: 'PUT', body: JSON.stringify({ values }) });
 // escreve linhas novas a partir da próxima linha livre, nas colunas exatas (A…)
@@ -613,34 +627,95 @@ function checkCents(c){ c = Number(c); if (!Number.isInteger(c) || c === 0 || Ma
 const nextMonth = m => { const [a, b] = m.split('-').map(Number); const d = new Date(a, b, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); };
 // Despesas recorrentes: no dia 1 de cada mês (na primeira vez que a app abre) são lançadas no mês.
 // Se a app não abrir durante algum tempo, recupera os meses em falta (até 12).
+// Anuais: lançadas no dia marcado (ex.: 19 de abril), no orçamento do mês ou num fundo.
 async function applyRecurring(D){
-  const rows = [], marks = [], newMonths = new Set(), stamp = nowStamp();
-  D.rec.filter(r => r.active && r.cents && /^\d{4}-\d{2}$/.test(r.last) && r.last < TODAY_MONTH).forEach(r => {
+  const rows = [], moves = [], marks = [], newMonths = new Set(), stamp = nowStamp(), Y = +TODAY.slice(0, 4);
+  const addExpense = (r, date) => { const m = date.slice(0, 7); rows.push([uuid(), date, m, r.desc, r.cents / 100, r.category, stamp]); if (!D.months[m]) newMonths.add(m); };
+  D.rec.filter(r => r.active && r.cents && r.freq === 'mensal' && /^\d{4}-\d{2}$/.test(r.last) && r.last < TODAY_MONTH).forEach(r => {
     let m = r.last, n = 0;
-    while (m < TODAY_MONTH && n < 12){
-      m = nextMonth(m); n++;
-      rows.push([uuid(), m + '-01', m, r.desc, r.cents / 100, r.category, stamp]);
-      if (!D.months[m]) newMonths.add(m);
-    }
+    while (m < TODAY_MONTH && n < 12){ m = nextMonth(m); n++; addExpense(r, m + '-01'); }
     marks.push({ range: `Recorrentes!F${r.row}`, values: [[TODAY_MONTH]] });
   });
-  if (!rows.length) return 0;
+  D.rec.filter(r => r.active && r.cents && r.freq === 'anual' && /^\d{4}$/.test(r.last) && +r.last < Y).forEach(r => {
+    let y = +r.last + 1, last = +r.last;
+    while (y <= Y && y - r.last <= 3){
+      const date = y + '-' + r.day; if (date > TODAY) break;
+      if (r.fund && D.funds.some(f => f.id === r.fund)) moves.push([uuid(), r.fund, date, r.desc, -r.cents / 100, r.category]);
+      else addExpense(r, date);
+      last = y; y++;
+    }
+    if (last !== +r.last) marks.push({ range: `Recorrentes!F${r.row}`, values: [[String(last)]] });
+  });
+  if (!rows.length && !moves.length) return 0;
   // marca primeiro como lançadas (evita duplicar se a app abrir em dois sítios ao mesmo tempo)
   await gfetch(`${SHEETS_API}/${D.ss.id}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data: marks }) });
-  await appendRows(D, 'Despesas', rows);
+  if (rows.length) await appendRows(D, 'Despesas', rows);
+  if (moves.length) await appendRows(D, 'Movimentos', moves);
   if (newMonths.size) await appendRows(D, 'Meses', [...newMonths].sort().map(m => [m, D.def / 100]));
-  return rows.length;
+  return rows.length + moves.length;
 }
+// último ano já lançado de uma anual: se a data deste ano já passou, conta como feita (não lança para trás)
+const annualLast = day => String(+TODAY.slice(0, 4) - (TODAY.slice(0, 4) + '-' + day <= TODAY ? 0 : 1));
 
 async function api(action, p){
   let D = await readAll(), auto = 0;
-  if (action === 'getMonth' || action === 'getYear' || action === 'getRecurring'){
+  if (action === 'getMonth' || action === 'getYear' || action === 'getRecurring' || action === 'getFunds'){
     auto = await applyRecurring(D);
     if (auto) D = await readAll();
   }
   const ss = D.ss;
   switch (action){
-    case 'getRecurring': return { items: D.rec.map(({ row, ...r }) => r), auto };
+    case 'getRecurring': return { items: D.rec.map(({ row, ...r }) => r), funds: D.funds.map(f => ({ id: f.id, name: f.name, color: f.color })), auto };
+    case 'getFunds': {
+      const yr = String(p.year);
+      const funds = D.funds.map(f => {
+        const mv = D.moves.filter(m => m.fund === f.id), y = mv.filter(m => m.date.slice(0, 4) === yr);
+        return { id: f.id, name: f.name, color: f.color, balance: mv.reduce((s, m) => s + m.cents, 0),
+          in: y.filter(m => m.cents > 0).reduce((s, m) => s + m.cents, 0), out: -y.filter(m => m.cents < 0).reduce((s, m) => s + m.cents, 0) };
+      });
+      const ids = new Set(D.funds.map(f => f.id));
+      const moves = D.moves.filter(m => ids.has(m.fund)).map(({ row, ...m }) => m).sort((a, b) => b.date.localeCompare(a.date));
+      return { year: p.year, funds, moves, auto };
+    }
+    case 'saveFund': {
+      const name = cleanDesc(p.name).slice(0, 30); if (!name) throw new Error('Nome em falta.');
+      if (D.funds.some(f => f.id !== p.id && normTxt(f.name) === normTxt(name))) throw new Error('Já existe um fundo com esse nome.');
+      const color = CAT_COLORS.includes(p.color) ? p.color : CAT_COLORS[6];
+      if (p.id){
+        const f = D.funds.find(x => x.id === p.id); if (!f) throw new Error('Fundo não encontrado — atualiza a app.');
+        await putValues(ss, `Fundos!B${f.row}:C${f.row}`, [[name, color]]);
+        return { id: p.id };
+      }
+      const id = uuid(); await appendRows(D, 'Fundos', [[id, name, color]]); return { id };
+    }
+    case 'deleteFund': {
+      const f = D.funds.find(x => x.id === p.id); if (!f) throw new Error('Fundo não encontrado — atualiza a app.');
+      const del = (sheetId, rows) => rows.sort((a, b) => b - a).map(r => ({ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: r - 1, endIndex: r } } }));
+      const requests = del(ss.sheetIds.Movimentos, D.moves.filter(m => m.fund === f.id).map(m => m.row)).concat(del(ss.sheetIds.Fundos, [f.row]));
+      await gfetch(`${SHEETS_API}/${ss.id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests }) });
+      // anuais que eram pagas por este fundo passam para o orçamento do mês
+      const data = D.rec.filter(r => r.fund === f.id).map(r => ({ range: `Recorrentes!J${r.row}`, values: [['']] }));
+      if (data.length) await gfetch(`${SHEETS_API}/${ss.id}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data }) });
+      return { id: f.id };
+    }
+    case 'saveMove': {
+      if (!D.funds.some(f => f.id === p.fund)) throw new Error('Escolhe um fundo.');
+      const desc = cleanDesc(p.desc); if (!desc) throw new Error('Descrição em falta.');
+      const cents = Math.abs(checkCents(p.cents)) * (p.type === 'in' ? 1 : -1);
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(p.date) ? p.date : TODAY;
+      const category = p.type === 'in' ? '' : (CAT[p.category] ? p.category : 'Outros');
+      const row = [p.fund, date, desc, cents / 100, category];
+      if (p.id){
+        const m = D.moves.find(x => x.id === p.id); if (!m) throw new Error('Movimento não encontrado — atualiza a app.');
+        await putValues(ss, `Movimentos!B${m.row}:F${m.row}`, [row]); return { id: p.id };
+      }
+      const id = uuid(); await appendRows(D, 'Movimentos', [[id, ...row]]); return { id };
+    }
+    case 'deleteMove': {
+      const m = D.moves.find(x => x.id === p.id); if (!m) throw new Error('Movimento não encontrado — atualiza a app.');
+      await gfetch(`${SHEETS_API}/${ss.id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId: ss.sheetIds.Movimentos, dimension: 'ROWS', startIndex: m.row - 1, endIndex: m.row } } }] }) });
+      return { id: m.id };
+    }
     case 'saveCategory': {
       const name = cleanDesc(p.name).slice(0, 30); if (!name) throw new Error('Nome em falta.');
       const old = p.oldName ? D.cats.find(c => c.name === p.oldName) : null;
@@ -676,17 +751,24 @@ async function api(action, p){
     case 'saveRecurring': {
       const desc = cleanDesc(p.desc); if (!desc) throw new Error('Descrição em falta.');
       const cents = checkCents(p.cents), category = CAT[p.category] ? p.category : 'Outros', active = p.active !== false;
+      const freq = p.freq === 'anual' ? 'anual' : 'mensal';
+      const day = freq === 'anual' && /^\d{2}-\d{2}$/.test(p.day) ? p.day : '';
+      if (freq === 'anual' && !day) throw new Error('Escolhe a data.');
+      const fund = freq === 'anual' && D.funds.some(f => f.id === p.fund) ? p.fund : '';
+      await putValues(ss, 'Recorrentes!F1:J1', [REC_HEAD.slice(5)]);   // cabeçalhos novos em folhas antigas
       if (p.id){
         const r = D.rec.find(x => x.id === p.id); if (!r) throw new Error('Despesa recorrente não encontrada — atualiza a app.');
-        // ao reativar, só volta a lançar a partir do próximo mês
-        const last = active && !r.active ? TODAY_MONTH : r.last;
+        // ao reativar (ou mudar a data de uma anual), só volta a lançar a partir da próxima ocorrência
+        let last = r.last;
+        if (freq === 'mensal' && (r.freq !== 'mensal' || (active && !r.active))) last = TODAY_MONTH;
+        if (freq === 'anual' && (r.freq !== 'anual' || r.day !== day || (active && !r.active))) last = annualLast(day);
         await putValues(ss, `Recorrentes!B${r.row}:F${r.row}`, [[desc, cents / 100, category, active, last]]);
+        await putValues(ss, `Recorrentes!H${r.row}:J${r.row}`, [[freq, day, fund]]);
         return { id: p.id };
       }
-      const id = uuid(), [y, mo] = TODAY_MONTH.split('-').map(Number), prev = new Date(y, mo - 2, 1);
-      const last = p.applyNow ? prev.getFullYear() + '-' + pad(prev.getMonth() + 1) : TODAY_MONTH;
-      await appendRows(D, 'Recorrentes', [[id, desc, cents / 100, category, active, last, nowStamp()]]);
-      if (p.applyNow && active) await applyRecurring(await readAll());
+      const id = uuid();
+      const last = freq === 'anual' ? annualLast(day) : TODAY_MONTH;
+      await appendRows(D, 'Recorrentes', [[id, desc, cents / 100, category, active, last, nowStamp(), freq, day, fund]]);
       return { id };
     }
     case 'deleteRecurring': {
@@ -790,7 +872,7 @@ async function call(action, p){
 /* ============================== estado ============================== */
 const now = new Date();
 const TODAY = ymd(now), TODAY_MONTH = TODAY.slice(0, 7);
-const S = { view:'month', month:TODAY_MONTH, year:now.getFullYear(), data:null, yearData:null, recData:null, sim:newSim(), filter:null, seq:0 };
+const S = { view:'month', month:TODAY_MONTH, year:now.getFullYear(), data:null, yearData:null, recData:null, fundsData:null, fundFilter:null, sim:newSim(), filter:null, seq:0 };
 function newSim(){ return { on:false, off:new Set(), extra:[] }; }
 const autoToast = n => { if (n) toast(n === 1 ? '1 despesa recorrente adicionada' : n + ' despesas recorrentes adicionadas'); };
 
@@ -809,7 +891,12 @@ async function loadYear(){
   try { const d = await call('getYear', { year:S.year }); if (req !== S.seq) return; S.yearData = d; render(); }
   catch (e) { if (!$('#login').hidden) return; toast(e.message); }
 }
-const load = () => S.view === 'month' ? loadMonth() : S.view === 'rec' ? loadRec() : loadYear();
+async function loadFunds(){
+  const req = ++S.seq;
+  try { const d = await call('getFunds', { year: +S.month.slice(0, 4) }); if (req !== S.seq) return; S.fundsData = d; if (d.auto) S.data = null; render(); autoToast(d.auto); }
+  catch (e) { if (!$('#login').hidden) return; toast(e.message); }
+}
+const load = () => S.view === 'month' ? loadMonth() : S.view === 'rec' ? loadRec() : S.view === 'funds' ? loadFunds() : loadYear();
 
 /* ============================== ecrã de login ============================== */
 function showLogin(expired){
@@ -838,34 +925,39 @@ function render(){
   if (DRAG.on){ DRAG.pending = true; return; }   // não mexe no ecrã a meio de um arrasto
   DRAG.pending = false;
   document.body.classList.toggle('sim', S.view === 'month' && S.sim.on);
-  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === (S.view === 'year' ? 'month' : S.view)));
-  $('#title').textContent = S.view === 'month' ? monthLabel(S.month) : S.view === 'rec' ? 'Recorrentes' : String(S.year);
-  document.querySelectorAll('[data-act="prev"],[data-act="next"]').forEach(b => { b.style.visibility = S.view === 'rec' ? 'hidden' : ''; });
+  const inDeck = DECK.includes(S.view);
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === (inDeck ? 'month' : S.view)));
+  $('#title').textContent = S.view === 'month' ? monthLabel(S.month) : S.view === 'rec' ? 'Recorrentes' : S.view === 'funds' ? 'Fundos' : String(S.year);
+  document.querySelectorAll('[data-act="prev"],[data-act="next"]').forEach(b => { b.style.visibility = S.view === 'rec' || S.view === 'funds' ? 'hidden' : ''; });
   if (S.view === 'month') (S.data && S.data.month === S.month) ? renderMonth() : skeleton();
   else if (S.view === 'rec') S.recData ? renderRec() : skeleton();
+  else if (S.view === 'funds') S.fundsData ? renderFunds() : skeleton();
   else (S.yearData && S.yearData.year === S.year) ? renderYear() : skeleton();
-  if (S.view === 'month' || S.view === 'year') buildDeck();
+  if (inDeck) buildDeck();
 }
 
-/* ---------- carrossel de cartões (Mês ⇄ Ano), como os cartões de uma app de banco ---------- */
-// O cartão atual fica ao centro, com o outro cartão de cada lado: arrastar para qualquer lado mostra o outro.
+/* ---------- carrossel de cartões (Mês ⇄ Ano ⇄ Fundos), como os cartões de uma app de banco ---------- */
+// O cartão atual fica ao centro, com o anterior à esquerda e o seguinte à direita (dá a volta).
 const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const DECK_GAP = 16;
-const otherView = () => S.view === 'month' ? 'year' : 'month';
+const DECK = ['month', 'year', 'funds'];
+const deckSide = d => DECK[(DECK.indexOf(S.view) + d + DECK.length) % DECK.length];   // d: -1 anterior, +1 seguinte
 function heroFor(view){
   const box = document.createElement('div');
   if (view === 'month' && S.data && S.data.month === S.month) renderMonth(box);
   else if (view === 'year' && S.yearData && S.yearData.year === +S.month.slice(0, 4)) renderYear(box);
+  else if (view === 'funds' && S.fundsData) renderFunds(box);
   let h = box.querySelector('.hero');
   if (!h){
-    box.innerHTML = `<section class="hero"><div class="hero-top"><span class="eyebrow">${view === 'year' ? 'Guardado em ' + S.month.slice(0, 4) : monthLabel(S.month)}</span></div><div class="big" style="opacity:.55">···</div></section>`;
+    const t = view === 'year' ? 'Guardado em ' + S.month.slice(0, 4) : view === 'funds' ? 'Fundos' : monthLabel(S.month);
+    box.innerHTML = `<section class="hero ${view === 'funds' ? 'funds' : ''}"><div class="hero-top"><span class="eyebrow">${t}</span></div><div class="big" style="opacity:.55">···</div></section>`;
     h = box.firstElementChild;
   }
   return h;
 }
 function withDots(h, view){
   h.querySelectorAll('.hero-dots').forEach(x => x.remove());
-  h.insertAdjacentHTML('beforeend', `<div class="hero-dots" aria-hidden="true"><i class="${view === 'month' ? 'on' : ''}"></i><i class="${view === 'year' ? 'on' : ''}"></i></div>`);
+  h.insertAdjacentHTML('beforeend', `<div class="hero-dots" aria-hidden="true">${DECK.map(v => `<i class="${v === view ? 'on' : ''}"></i>`).join('')}</div>`);
   return h;
 }
 function buildDeck(){
@@ -874,14 +966,13 @@ function buildDeck(){
   const track = document.createElement('div'); track.className = 'deck-track';
   const slot = (el, side) => { const s = document.createElement('div'); s.className = 'deck-slot' + (side ? ' side' : ''); s.appendChild(el); return s; };
   h.replaceWith(deck); deck.appendChild(track);
-  const ov = otherView();
-  track.append(slot(withDots(heroFor(ov), ov), true), slot(withDots(h, S.view), false), slot(withDots(heroFor(ov), ov), true));
+  const a = deckSide(-1), b = deckSide(1);
+  track.append(slot(withDots(heroFor(a), a), true), slot(withDots(h, S.view), false), slot(withDots(heroFor(b), b), true));
   deck.style.height = track.children[1].offsetHeight + 'px';
 }
 function refreshDeckSides(){
   const track = $('#view .deck-track'); if (!track || DRAG.on) return;
-  const ov = otherView();
-  [0, 2].forEach(i => { const s = track.children[i]; s.replaceChildren(withDots(heroFor(ov), ov)); });
+  [[0, -1], [2, 1]].forEach(([i, d]) => { const v = deckSide(d); track.children[i].replaceChildren(withDots(heroFor(v), v)); });
 }
 function switchView(to, dir){
   if (to === S.view) return;
@@ -890,32 +981,39 @@ function switchView(to, dir){
   render(); load();   // usa os dados já carregados e atualiza em silêncio
   if (reduceMotion()) return;
   const v = $('#view'); v.classList.remove('view-in-r', 'view-in-l'); void v.offsetWidth;
-  v.classList.add((dir || (to === 'year' ? -1 : 1)) < 0 ? 'view-in-r' : 'view-in-l');
+  const cls = (dir || -1) < 0 ? 'view-in-r' : 'view-in-l';
+  v.classList.add(cls);
+  clearTimeout(switchView.t); switchView.t = setTimeout(() => v.classList.remove(cls), 520);   // não repetir a animação quando os dados atualizam
 }
-// carrega o ano em segundo plano para o cartão do lado já mostrar os números
+// carrega o ano e os fundos em segundo plano para os cartões do lado já mostrarem os números
 let prefetching = false;
 async function prefetchYear(){
   const yr = +S.month.slice(0, 4);
-  if (prefetching || (S.yearData && S.yearData.year === yr)) return;
+  if (prefetching) return;
   prefetching = true;
-  try { const d = await call('getYear', { year: yr }); if (!S.yearData || S.yearData.year !== yr || S.view !== 'year') { S.yearData = d; if (S.view === 'month') refreshDeckSides(); } } catch (e) {} finally { prefetching = false; }
+  try {
+    if (!S.yearData || S.yearData.year !== yr){ const d = await call('getYear', { year: yr }); if (!S.yearData || S.yearData.year !== yr || S.view !== 'year') S.yearData = d; }
+    if (!S.fundsData){ const f = await call('getFunds', { year: yr }); if (!S.fundsData) S.fundsData = f; }
+    if (DECK.includes(S.view)) refreshDeckSides();
+  } catch (e) {} finally { prefetching = false; }
 }
 const DRAG = { on:false };
 (() => {
   const view = document.getElementById('view');
   const spring = 'cubic-bezier(.2,.9,.25,1)';
-  let sx, sy, t0, dx, mode, deck, track, w, hCur, hOther, lastX, lastT, vel;
-  const setP = (p, dk = deck) => {   // p: 0 (cartão atual) → 1 (outro cartão)
+  let sx, sy, t0, dx, mode, deck, track, w, hCur, hL, hR, lastX, lastT, vel;
+  const setP = (p, dk = deck) => {   // p: 0 (cartão atual) → 1 (cartão do lado para onde se arrasta)
     const cur = track.children[1].firstElementChild, a = track.children[0].firstElementChild, b = track.children[2].firstElementChild;
     cur.style.transform = `scale(${1 - .06 * p})`; cur.style.opacity = String(1 - .25 * p);
     [a, b].forEach(x => { x.style.transform = `scale(${.94 + .06 * p})`; x.style.opacity = String(.75 + .25 * p); });
+    const hOther = dx < 0 ? hR : hL;
     dk.style.height = (hCur + (hOther - hCur) * p) + 'px';
   };
   view.addEventListener('touchstart', ev => {
-    deck = ev.touches.length === 1 && (S.view === 'month' || S.view === 'year') ? ev.target.closest('.deck') : null;
+    deck = ev.touches.length === 1 && DECK.includes(S.view) ? ev.target.closest('.deck') : null;
     if (!deck) return;
     track = deck.firstElementChild; w = track.clientWidth;
-    hCur = track.children[1].offsetHeight; hOther = track.children[2].offsetHeight;
+    hCur = track.children[1].offsetHeight; hL = track.children[0].offsetHeight; hR = track.children[2].offsetHeight;
     sx = lastX = ev.touches[0].clientX; sy = ev.touches[0].clientY; t0 = lastT = performance.now(); dx = 0; vel = 0; mode = null;
     track.style.transition = 'none'; deck.style.transition = 'none';
     track.querySelectorAll('.hero').forEach(x => { x.style.transition = 'none'; });
@@ -944,7 +1042,7 @@ const DRAG = { on:false };
       const dir = dx < 0 ? -1 : 1;
       track.style.transform = `translateX(calc(-100% - ${DECK_GAP}px + ${dir * max}px))`;
       setP(1, d);
-      setTimeout(() => switchView(otherView(), dir), dur);
+      setTimeout(() => switchView(deckSide(-dir), dir), dur);   // arrastar para a esquerda → cartão seguinte
     } else {
       track.style.transform = `translateX(calc(-100% - ${DECK_GAP}px))`;
       setP(0, d);
@@ -1152,7 +1250,8 @@ function openForm(mode, e){
     <div class="sheet-h"><button data-act="close">Cancelar</button><b>${title}</b><button style="visibility:hidden" aria-hidden="true" tabindex="-1">Cancelar</button></div>
     <div class="amount" id="fAmt"></div>
     <div class="amount-cap">${F.mode === 'sim' ? 'Não fica gravada' : monthLabel(S.month)}</div>
-    <input class="field" id="fDesc" maxlength="100" placeholder="Descrição (ex.: Farmácia)" value="${esc(F.desc)}" autocomplete="off" enterkeyhint="done">
+    <span class="lbl">Descrição</span>
+    <input class="field" id="fDesc" maxlength="100" value="${esc(F.desc)}" autocomplete="off" enterkeyhint="done">
     <span class="lbl">Categoria</span>
     <div class="cats">${CATS.map(c => `<button class="cat-pick" data-pick="${esc(c)}" style="--c:${CAT[c].c}">${icon(c, 'sm')}${esc(c)}</button>`).join('')}${addCatBtn}</div>
     ${F.mode !== 'sim' ?`<span class="lbl">Data</span>
@@ -1273,6 +1372,104 @@ async function saveSettings(btn){
   } catch (e) { btn.disabled = false; toast(e.message); }
 }
 
+/* ---------- fundos (dinheiro à parte: não conta para o mês nem para o objetivo) ---------- */
+const IN_ICON = '<path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 19h16"/>';
+function renderFunds(target){
+  const d = S.fundsData, funds = d.funds, yr = d.year;
+  const total = funds.reduce((s, f) => s + f.balance, 0), inY = funds.reduce((s, f) => s + f.in, 0), outY = funds.reduce((s, f) => s + f.out, 0);
+  const fundName = id => (funds.find(f => f.id === id) || {}).name || '';
+  const hero = funds.length ? `<section class="hero funds">
+      <div class="hero-top"><span class="eyebrow">Fundos</span><button class="chip-w" data-act="newFund">Novo fundo</button></div>
+      <div class="hero-main"><div style="min-width:0"><div class="big num">${eurBig(total)}</div><div class="hero-sub">${funds.length > 1 ? 'Saldo total' : 'Saldo · ' + esc(funds[0].name)}</div></div></div>
+      <div class="stats"><div class="stat"><small>Entrou em ${yr}</small><b class="num">${eur(inY)}</b></div><div class="stat"><small>Saiu em ${yr}</small><b class="num">${eur(outY)}</b></div></div>
+    </section>`
+    : `<section class="hero funds"><div class="hero-top"><span class="eyebrow">Fundos</span></div>
+      <div class="big" style="font-size:24px;margin-top:8px;white-space:normal">Dinheiro à parte</div>
+      <div class="hero-sub">Part-time, férias, carro… fora do orçamento do mês.</div>
+      <div class="stats"><button class="stat tap" data-act="newFund" style="text-align:left;color:#fff"><small>Começar</small><b>Criar fundo →</b></button></div></section>`;
+  const list = S.fundFilter ? d.moves.filter(m => m.fund === S.fundFilter) : d.moves;
+  const groups = {}; list.forEach(m => { const k = m.date.slice(0, 7); (groups[k] = groups[k] || []).push(m); });
+  const movesHtml = Object.keys(groups).sort().reverse().map(k => `<div class="group"><div class="day">${monthLabel(k)}</div><div class="txs">${groups[k].map(m => `
+      <button class="tx" data-move="${esc(m.id)}">${m.cents > 0 ? `<i class="ic" style="--c:var(--accent)"><svg viewBox="0 0 24 24">${IN_ICON}</svg></i>` : icon(m.category)}
+        <div class="tx-main"><b>${esc(m.desc)}</b><small>${funds.length > 1 ? esc(fundName(m.fund)) + ' · ' : ''}${fmtDate(m.date)}</small></div>
+        <span class="amt num ${m.cents > 0 ? 'in' : ''}">${m.cents > 0 ? '+' : '−'}${eur(Math.abs(m.cents))}</span></button>`).join('')}</div></div>`).join('');
+  (target || $('#view')).innerHTML = `
+  ${hero}
+  ${funds.length ? `<section class="card">${funds.map(f => `
+    <button class="mrow ${S.fundFilter && S.fundFilter !== f.id ? 'muted' : ''}" data-fund="${esc(f.id)}"><span><b><i class="fund-dot" style="--c:${f.color}"></i>${esc(f.name)}</b><small class="s num">entrou ${eur(f.in)} · saiu ${eur(f.out)}</small></span>
+      <span class="r num"><b class="${f.balance < 0 ? 'neg' : ''}">${eur(f.balance)}</b><small class="s">saldo</small></span></button>`).join('')}</section>` : ''}
+  ${funds.length ? `<div class="sh"><h2>${S.fundFilter ? esc(fundName(S.fundFilter)) : 'Movimentos'}</h2><span>${S.fundFilter ? `<button data-act="clearFund" style="color:var(--accent);font-weight:700">Ver todos</button>` : `${list.length} ${list.length === 1 ? 'movimento' : 'movimentos'}`}</span></div>
+    ${movesHtml || `<div class="empty">${icon('Outros')}<b>Sem movimentos</b><p>Regista o que entra e o que sai deste dinheiro.</p><button class="btn primary inline" data-act="add">Novo movimento</button></div>`}` : ''}`;
+}
+function openFund(f){
+  const isNew = !f;
+  f = f || { name:'', color: CAT_COLORS[((S.fundsData ? S.fundsData.funds.length : 0) + 5) % CAT_COLORS.length] };
+  F = { mode:'fund', id: f.id || null, color: f.color };
+  openSheet(`
+    <div class="sheet-h"><button data-act="close">Cancelar</button><b>${isNew ? 'Novo fundo' : 'Editar fundo'}</b><button data-act="saveFund" style="color:var(--accent);font-weight:700">Guardar</button></div>
+    <span class="lbl">Nome</span>
+    <input class="field" id="uName" maxlength="30" value="${esc(f.name)}" autocomplete="off">
+    <span class="lbl">Cor</span>
+    <div class="swatches">${CAT_COLORS.map(k => `<button class="swatch ${k === F.color ? 'on' : ''}" data-color="${k}" style="--c:${k}" aria-label="Cor ${k}"></button>`).join('')}</div>
+    ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad);margin-top:12px" data-act="delFund">Eliminar fundo</button>`}`);
+}
+async function saveFund(btn){
+  const name = $('#uName').value.trim(); if (!name) return toast('Nome em falta.');
+  btn.disabled = true;
+  try { await call('saveFund', { id:F.id, name, color:F.color }); closeSheet(); toast('Fundo guardado'); S.recData = null; loadFunds(); }
+  catch (e) { btn.disabled = false; toast(e.message); }
+}
+async function delFund(btn){
+  if (btn.dataset.sure !== '1'){ btn.dataset.sure = '1'; btn.textContent = 'Toca outra vez — os movimentos também são apagados'; return; }
+  btn.disabled = true;
+  try { await call('deleteFund', { id:F.id }); if (S.fundFilter === F.id) S.fundFilter = null; closeSheet(); toast('Fundo eliminado'); S.recData = null; loadFunds(); }
+  catch (e) { btn.disabled = false; toast(e.message); }
+}
+function openMove(m){
+  const funds = S.fundsData ? S.fundsData.funds : [];
+  if (!funds.length){ toast('Cria primeiro um fundo.'); return openFund(null); }
+  const isNew = !m;
+  m = m || { type:'out', fund: S.fundFilter || funds[0].id, desc:'', cents:0, category:'Outros', date: TODAY };
+  F = { mode:'move', id: m.id || null, type: m.cents > 0 ? 'in' : (m.type || 'out'), fund: m.fund, cat: m.category || 'Outros' };
+  openSheet(`
+    <div class="sheet-h"><button data-act="close">Cancelar</button><b>${isNew ? 'Novo movimento' : 'Editar movimento'}</b><button data-act="saveMove" style="color:var(--accent);font-weight:700">Guardar</button></div>
+    <div class="seg"><button data-mtype="in">Entrada</button><button data-mtype="out">Saída</button></div>
+    ${funds.length > 1 ? `<span class="lbl">Fundo</span><div class="pills">${funds.map(f => `<button class="pill" data-mfund="${esc(f.id)}"><i class="fund-dot" style="--c:${f.color}"></i>${esc(f.name)}</button>`).join('')}</div>` : ''}
+    <span class="lbl">Valor</span>
+    <input class="field num" id="mVal" inputmode="decimal" value="${m.cents ? num(Math.abs(m.cents)) : ''}" autocomplete="off">
+    <span class="lbl">Descrição</span>
+    <input class="field" id="mDesc" maxlength="100" value="${esc(m.desc)}" autocomplete="off">
+    <div id="mCats"><span class="lbl">Categoria</span>
+      <div class="cats">${CATS.map(c => `<button class="cat-pick" data-pick="${esc(c)}" style="--c:${CAT[c].c}">${icon(c, 'sm')}${esc(c)}</button>`).join('')}</div></div>
+    <span class="lbl">Data</span>
+    <input type="date" class="field" id="mDate" value="${m.date || TODAY}">
+    ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad)" data-act="delMove">Eliminar movimento</button>`}`);
+  updateMoveForm();
+}
+function updateMoveForm(){
+  document.querySelectorAll('[data-mtype]').forEach(b => b.classList.toggle('on', b.dataset.mtype === F.type));
+  document.querySelectorAll('[data-mfund]').forEach(b => b.classList.toggle('on', b.dataset.mfund === F.fund));
+  document.querySelectorAll('#mCats .cat-pick').forEach(b => b.classList.toggle('on', b.dataset.pick === F.cat));
+  $('#mCats').hidden = F.type === 'in';
+}
+async function saveMove(btn){
+  const cents = parseAmount($('#mVal').value), desc = $('#mDesc').value.trim();
+  if (cents == null || cents <= 0) return toast('Valor inválido.');
+  if (!desc) return toast('Descrição em falta.');
+  const isEdit = !!F.id;
+  btn.disabled = true;
+  try {
+    await call('saveMove', { id:F.id, fund:F.fund, type:F.type, cents, desc, category:F.cat, date:$('#mDate').value });
+    closeSheet(); toast(isEdit ? 'Movimento corrigido' : 'Movimento registado'); loadFunds();
+  } catch (e) { btn.disabled = false; toast(e.message); }
+}
+async function delMove(btn){
+  if (btn.dataset.sure !== '1'){ btn.dataset.sure = '1'; btn.textContent = 'Toca outra vez para eliminar'; return; }
+  btn.disabled = true;
+  try { await call('deleteMove', { id:F.id }); closeSheet(); toast('Movimento eliminado'); loadFunds(); }
+  catch (e) { btn.disabled = false; toast(e.message); }
+}
+
 /* ---------- categorias personalizadas ---------- */
 // guarda o formulário de onde se veio, para voltar a ele já com a categoria nova escolhida
 function catOrigin(){
@@ -1285,12 +1482,14 @@ function catOrigin(){
     };
   }
   if (F && F.mode === 'rec'){
-    const snap = { id:F.id, cat:F.cat, desc:$('#rDesc').value, val:$('#rVal').value, act:$('#rAct') ? $('#rAct').checked : true };
+    const snap = { id:F.id, cat:F.cat, freq:F.freq, fund:F.fund, day:$('#rDay').value, desc:$('#rDesc').value, val:$('#rVal').value, act:$('#rAct') ? $('#rAct').checked : true };
     return name => {
       const r = snap.id ? Object.assign({}, S.recData.items.find(x => x.id === snap.id)) : null;
-      openRec(r);
-      F.cat = name || snap.cat; $('#rDesc').value = snap.desc; $('#rVal').value = snap.val; if ($('#rAct')) $('#rAct').checked = snap.act;
+      openRec(r, snap.freq);
+      Object.assign(F, { cat: name || snap.cat, freq: snap.freq, fund: snap.fund });
+      $('#rDesc').value = snap.desc; $('#rVal').value = snap.val; $('#rDay').value = snap.day; if ($('#rAct')) $('#rAct').checked = snap.act;
       document.querySelectorAll('.cat-pick').forEach(b => b.classList.toggle('on', b.dataset.pick === F.cat));
+      updateRecForm();
     };
   }
   if (F && F.mode === 'catlist') return () => openCatManager();
@@ -1359,45 +1558,74 @@ function openCatManager(){
 }
 
 /* ---------- despesas recorrentes ---------- */
+const dayLabelShort = day => +day.slice(3) + ' ' + MES_C[+day.slice(0, 2) - 1];
 function renderRec(){
-  const items = S.recData.items, act = items.filter(r => r.active);
-  const total = act.reduce((s, r) => s + r.cents, 0);
-  const row = r => `
+  const all = S.recData.items, funds = S.recData.funds || [];
+  const fundName = id => { const f = funds.find(x => x.id === id); return f ? f.name : 'Orçamento do mês'; };
+  const bigNum = v => `<div class="num" style="font-size:34px;font-weight:800;line-height:1.1;letter-spacing:-.02em;margin-top:6px">${eur(v)}</div>`;
+  const section = (items, freq) => {
+    const act = items.filter(r => r.active), total = act.reduce((s, r) => s + r.cents, 0);
+    const sorted = freq === 'anual' ? act.slice().sort((a, b) => a.day.localeCompare(b.day)) : act;
+    const row = r => `
       <button class="tx ${r.active ? '' : 'off'}" data-rec="${esc(r.id)}">${icon(r.category)}
-        <div class="tx-main"><b>${esc(r.desc)}</b><small>${esc(r.category)}${r.active ? '' : ' · em pausa'}</small></div>
+        <div class="tx-main"><b>${esc(r.desc)}</b><small>${freq === 'anual' ? dayLabelShort(r.day) + ' · ' + esc(fundName(r.fund)) : esc(r.category)}${r.active ? '' : ' · em pausa'}</small></div>
         <span class="amt num">${eur(r.cents)}</span></button>`;
-  $('#view').innerHTML = `
+    return `
   <section class="card">
-    <div class="card-h"><h3>Total por mês</h3><span class="hint" style="margin:0">${act.length} ${act.length === 1 ? 'despesa' : 'despesas'}</span></div>
-    <div class="num" style="font-size:34px;font-weight:800;line-height:1.1;letter-spacing:-.02em;margin-top:6px">${eur(total)}</div>  </section>
-  ${items.length ? `<div class="group"><div class="txs">${act.map(row).join('')}${items.filter(r => !r.active).map(row).join('')}</div></div>`
-    : `<div class="empty">${icon('Subscrições')}<b>Sem despesas recorrentes</b><p>Ginásio, Apple, Netflix… adiciona as que pagas todos os meses.</p></div>`}
-  <button class="btn primary inline" data-act="addRec" style="margin:4px auto 0;display:block">Adicionar recorrente</button>`;
+    <div class="card-h"><h3>${freq === 'anual' ? 'Total por ano' : 'Total por mês'}</h3><span class="hint" style="margin:0">${act.length} ${act.length === 1 ? 'despesa' : 'despesas'}</span></div>
+    ${bigNum(total)}
+  </section>
+  ${items.length ? `<div class="group"><div class="txs">${sorted.map(row).join('')}${items.filter(r => !r.active).map(row).join('')}</div></div>` : ''}
+  <button class="btn primary inline" data-act="${freq === 'anual' ? 'addRecY' : 'addRec'}" style="margin:4px auto 0;display:block">${freq === 'anual' ? 'Adicionar anual' : 'Adicionar mensal'}</button>`;
+  };
+  $('#view').innerHTML = `
+  <div class="sh" style="margin-top:0"><h2>Mensais</h2></div>
+  ${section(all.filter(r => r.freq !== 'anual'), 'mensal')}
+  <div class="sh"><h2>Anuais</h2></div>
+  ${section(all.filter(r => r.freq === 'anual'), 'anual')}`;
 }
-function openRec(r){
+function openRec(r, freq){
   const isNew = !r;
-  r = r || { desc:'', cents:0, category:'Subscrições', active:true };
-  F = { mode:'rec', id:r.id || null, cat:r.category, active:r.active };
+  r = r || { desc:'', cents:0, category: freq === 'anual' ? 'Outros' : 'Subscrições', active:true, freq: freq || 'mensal', day:'', fund:'' };
+  const funds = (S.recData && S.recData.funds) || [];
+  F = { mode:'rec', id:r.id || null, cat:r.category, active:r.active, freq:r.freq || 'mensal', fund:r.fund || '' };
+  const dayVal = r.day ? TODAY.slice(0, 4) + '-' + r.day : '';
   openSheet(`
     <div class="sheet-h"><button data-act="close">Cancelar</button><b>${isNew ? 'Nova recorrente' : 'Editar recorrente'}</b><button data-act="saveRec" style="color:var(--accent);font-weight:700">Guardar</button></div>
+    <div class="seg"><button data-freq="mensal">Mensal</button><button data-freq="anual">Anual</button></div>
     <span class="lbl">Descrição</span>
     <input class="field" id="rDesc" maxlength="100" value="${esc(r.desc)}" autocomplete="off">
-    <span class="lbl">Valor por mês</span>
+    <span class="lbl" id="rValLbl">Valor</span>
     <input class="field num" id="rVal" inputmode="decimal" value="${r.cents ? num(r.cents) : ''}" autocomplete="off">
+    <div id="rYear">
+      <span class="lbl">Data</span>
+      <input type="date" class="field" id="rDay" value="${dayVal}">
+      <span class="lbl">Pago com</span>
+      <div class="pills"><button class="pill" data-pay="">Orçamento do mês</button>${funds.map(f => `<button class="pill" data-pay="${esc(f.id)}"><i class="fund-dot" style="--c:${f.color}"></i>${esc(f.name)}</button>`).join('')}</div>
+    </div>
     <span class="lbl">Categoria</span>
     <div class="cats">${CATS.map(c => `<button class="cat-pick ${c === F.cat ? 'on' : ''}" data-pick="${esc(c)}" style="--c:${CAT[c].c}">${icon(c, 'sm')}${esc(c)}</button>`).join('')}${addCatBtn}</div>
     ${isNew ? '' : `<label class="check"><input type="checkbox" id="rAct"${r.active ? ' checked' : ''}> Ativa</label>`}
     ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad)" data-act="delRec">Eliminar</button>`}`);
+  updateRecForm();
+}
+function updateRecForm(){
+  document.querySelectorAll('[data-freq]').forEach(b => b.classList.toggle('on', b.dataset.freq === F.freq));
+  document.querySelectorAll('[data-pay]').forEach(b => b.classList.toggle('on', b.dataset.pay === F.fund));
+  $('#rYear').hidden = F.freq !== 'anual';
+  $('#rValLbl').textContent = F.freq === 'anual' ? 'Valor por ano' : 'Valor por mês';
 }
 async function saveRec(btn){
   const desc = $('#rDesc').value.trim(), cents = parseAmount($('#rVal').value);
   if (!desc) return toast('Descrição em falta.');
   if (cents == null || cents <= 0) return toast('Valor inválido.');
-  const applyNow = !!($('#rNow') && $('#rNow').checked), active = $('#rAct') ? $('#rAct').checked : true;
+  const dv = $('#rDay').value;
+  if (F.freq === 'anual' && !/^\d{4}-\d{2}-\d{2}$/.test(dv)) return toast('Escolhe a data.');
+  const active = $('#rAct') ? $('#rAct').checked : true;
   btn.disabled = true;
   try {
-    await call('saveRecurring', { id:F.id, desc, cents, category:F.cat, active, applyNow });
-    closeSheet(); toast(applyNow ? 'Guardada e lançada neste mês' : 'Guardada'); if (applyNow) S.data = null; loadRec();
+    await call('saveRecurring', { id:F.id, desc, cents, category:F.cat, active, freq:F.freq, day: F.freq === 'anual' ? dv.slice(5) : '', fund: F.freq === 'anual' ? F.fund : '' });
+    closeSheet(); toast('Guardada'); loadRec();
   } catch (e) { btn.disabled = false; toast(e.message); }
 }
 async function delRec(btn){
@@ -1487,10 +1715,18 @@ function shift(dir){
 
 /* ============================== eventos ============================== */
 document.addEventListener('click', ev => {
-  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra],[data-rec],[data-color],[data-icon],[data-editcat]');
+  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra],[data-rec],[data-color],[data-icon],[data-editcat],[data-fund],[data-move],[data-mtype],[data-mfund],[data-pay],[data-freq]');
   if (!el) return;
   const ds = el.dataset;
   if (ds.color && F && F.mode === 'cat'){ F.color = ds.color; buzz(); updateCatForm(); return; }
+  if (ds.color && F && F.mode === 'fund'){ F.color = ds.color; buzz(); document.querySelectorAll('.swatch').forEach(b => b.classList.toggle('on', b.dataset.color === F.color)); return; }
+  if (ds.fund){ const f = S.fundsData.funds.find(x => x.id === ds.fund); if (f) openFund(f); return; }
+  if (ds.move){ const m = S.fundsData.moves.find(x => x.id === ds.move); if (m) openMove(m); return; }
+  if (ds.mtype && F && F.mode === 'move'){ F.type = ds.mtype; buzz(); updateMoveForm(); return; }
+  if (ds.mfund && F && F.mode === 'move'){ F.fund = ds.mfund; buzz(); updateMoveForm(); return; }
+  if (ds.pick && F && F.mode === 'move'){ F.cat = ds.pick; buzz(); updateMoveForm(); return; }
+  if (ds.pay != null && F && F.mode === 'rec'){ F.fund = ds.pay; buzz(); updateRecForm(); return; }
+  if (ds.freq && F && F.mode === 'rec'){ F.freq = ds.freq; buzz(); updateRecForm(); return; }
   if (ds.icon && F && F.mode === 'cat'){ F.icon = ds.icon; buzz(); updateCatForm(); return; }
   if (ds.editcat){ const c = CUSTOM.find(x => x.name === ds.editcat); if (c) openCategory(c, () => openCatManager()); return; }
   if (ds.rec){ const r = S.recData.items.find(x => x.id === ds.rec); if (r) openRec(r); return; }
@@ -1523,7 +1759,7 @@ document.addEventListener('click', ev => {
     case 'next': shift(1); break;
     case 'settings': openSettings(); break;
     case 'close': closeSheet(); break;
-    case 'add': if (S.view === 'rec'){ openRec(null); break; } if (S.view === 'year'){ S.view = 'month'; render(); if (!S.data || S.data.month !== S.month) loadMonth(); } openForm('add'); break;
+    case 'add': if (S.view === 'rec'){ openRec(null); break; } if (S.view === 'funds'){ openMove(null); break; } if (S.view === 'year'){ S.view = 'month'; render(); if (!S.data || S.data.month !== S.month) loadMonth(); } openForm('add'); break;
     case 'submit': submitForm(el); break;
     case 'del': deleteExp(el); break;
     case 'saveSettings': saveSettings(el); break;
@@ -1537,6 +1773,13 @@ document.addEventListener('click', ev => {
     case 'catBack': F.back(null); break;
     case 'cats': openCatManager(); break;
     case 'addRec': openRec(null); break;
+    case 'addRecY': openRec(null, 'anual'); break;
+    case 'newFund': openFund(null); break;
+    case 'saveFund': saveFund(el); break;
+    case 'delFund': delFund(el); break;
+    case 'saveMove': saveMove(el); break;
+    case 'delMove': delMove(el); break;
+    case 'clearFund': S.fundFilter = null; render(); break;
     case 'saveRec': saveRec(el); break;
     case 'delRec': delRec(el); break;
     case 'clearFilter': S.filter = null; render(); break;
@@ -1642,10 +1885,26 @@ const Mock = (() => {
         r = { id:rec.id }; break;
       }
       case 'deleteExtra': d.extras = (d.extras || []).filter(x => x.id !== p.id); r = { id:p.id }; break;
-      case 'getRecurring': r = { items:d.rec || [], auto:0 }; break;
+      case 'getRecurring': r = { items:(d.rec || []).map(x => Object.assign({ freq:'mensal', day:'', fund:'' }, x)), funds:d.funds || [], auto:0 }; break;
+      case 'getFunds': {
+        d.funds = d.funds || []; d.moves = d.moves || [];
+        const yr = String(p.year);
+        r = { year:p.year, auto:0, moves:d.moves.slice().sort((a, b) => b.date.localeCompare(a.date)), funds:d.funds.map(f => {
+          const mv = d.moves.filter(m => m.fund === f.id), y = mv.filter(m => m.date.startsWith(yr));
+          return Object.assign({}, f, { balance:mv.reduce((s, m) => s + m.cents, 0), in:y.filter(m => m.cents > 0).reduce((s, m) => s + m.cents, 0), out:-y.filter(m => m.cents < 0).reduce((s, m) => s + m.cents, 0) }); }) };
+        break;
+      }
+      case 'saveFund': { d.funds = d.funds || []; const f = { id:p.id || 'f' + (d.n++), name:p.name, color:p.color }; const i = d.funds.findIndex(x => x.id === f.id); if (i >= 0) d.funds[i] = f; else d.funds.push(f); r = { id:f.id }; break; }
+      case 'deleteFund': d.funds = (d.funds || []).filter(f => f.id !== p.id); d.moves = (d.moves || []).filter(m => m.fund !== p.id); r = { id:p.id }; break;
+      case 'saveMove': {
+        d.moves = d.moves || [];
+        const m = { id:p.id || 'v' + (d.n++), fund:p.fund, date:p.date || TODAY, desc:p.desc, cents:Math.abs(p.cents) * (p.type === 'in' ? 1 : -1), category:p.type === 'in' ? '' : p.category };
+        const i = d.moves.findIndex(x => x.id === m.id); if (i >= 0) d.moves[i] = m; else d.moves.push(m); r = { id:m.id }; break;
+      }
+      case 'deleteMove': d.moves = (d.moves || []).filter(m => m.id !== p.id); r = { id:p.id }; break;
       case 'saveRecurring': {
         d.rec = d.rec || [];
-        const rec = { id:p.id || 'r' + (d.n++), desc:p.desc, cents:p.cents, category:p.category, active:p.active !== false, last:TODAY_MONTH };
+        const rec = { id:p.id || 'r' + (d.n++), desc:p.desc, cents:p.cents, category:p.category, active:p.active !== false, last:TODAY_MONTH, freq:p.freq || 'mensal', day:p.day || '', fund:p.fund || '' };
         const i = d.rec.findIndex(x => x.id === rec.id); if (i >= 0) d.rec[i] = rec; else d.rec.push(rec);
         if (p.applyNow && !p.id) d.exp.push({ id:'n' + (d.n++), date:TODAY_MONTH + '-01', month:TODAY_MONTH, desc:p.desc, cents:p.cents, category:p.category });
         r = { id:rec.id }; break;
