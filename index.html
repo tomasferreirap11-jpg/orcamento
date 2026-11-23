@@ -72,6 +72,10 @@ main{max-width:520px;margin:0 auto;padding:4px 16px 0;display:flex;flex-directio
 .seg button{padding:10px;border-radius:11px;font-weight:700;font-size:14px;color:var(--muted)}
 .seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .pills{display:flex;flex-wrap:wrap;gap:8px}
+.pill.danger{color:var(--bad)}
+.tx .pill{flex:none}
+.months-pick{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.months-pick .pill{padding:9px 0;text-align:center;font-size:13px}
 .amt.in{color:var(--accent)}
 .fund-dot{width:10px;height:10px;border-radius:50%;background:var(--c);display:inline-block;margin-right:8px;vertical-align:1px}
 .hero-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -117,7 +121,7 @@ main{max-width:520px;margin:0 auto;padding:4px 16px 0;display:flex;flex-directio
 /* category rail */
 .rail{display:flex;gap:10px;overflow-x:auto;margin:0 -16px;padding:2px 16px 4px;scrollbar-width:none;scroll-snap-type:x proximity}
 .rail::-webkit-scrollbar{display:none}
-.cat-chip{flex:none;scroll-snap-align:start;background:var(--card);border-radius:18px;padding:12px;width:118px;text-align:left;box-shadow:var(--shadow);border:1.5px solid transparent;transition:transform .15s}
+.cat-chip{flex:none;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none;scroll-snap-align:start;background:var(--card);border-radius:18px;padding:12px;width:118px;text-align:left;box-shadow:var(--shadow);border:1.5px solid transparent;transition:transform .15s}
 .cat-chip:active{transform:scale(.97)}
 .cat-chip.on{border-color:var(--c)}
 .cat-chip .ic{margin-bottom:10px}
@@ -392,7 +396,19 @@ function applyCustomCats(list){
   CUSTOM.forEach(c => { CAT[c.name] = { c: CAT_COLORS.includes(c.color) || /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : CAT_COLORS[0], i: CAT_ICONS[c.icon] || CAT_ICONS.tag, custom: true }; });
   CATS.splice(0, CATS.length, ...BUILTIN.filter(k => k !== 'Outros'), ...CUSTOM.map(c => c.name), 'Outros');
 }
-const addCatBtn = `<button class="cat-pick add" data-act="newCat" style="--c:var(--accent)"><i class="ic sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></i>Nova</button>`;
+/* ---------- cor da app (cartões do Mês e do Ano) ---------- */
+const APP_COLORS = ['#1f8a62', '#ef6c57', '#f59e0b', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#78716c'];
+let APP_COLOR = (() => { try { const c = localStorage.getItem('orc.color'); return APP_COLORS.includes(c) ? c : APP_COLORS[0]; } catch (e) { return APP_COLORS[0]; } })();
+function applyAppColor(c, persist){
+  if (!APP_COLORS.includes(c)) c = APP_COLORS[0];
+  const r = document.documentElement.style;
+  if (c === APP_COLORS[0]) { r.removeProperty('--hero-a'); r.removeProperty('--hero-b'); }   // verde original
+  else { r.setProperty('--hero-a', `color-mix(in srgb, ${c} 55%, #0b1020)`); r.setProperty('--hero-b', c); }
+  if (persist) { APP_COLOR = c; try { localStorage.setItem('orc.color', c); } catch (e) {} }
+}
+applyAppColor(APP_COLOR);
+const REG = { admin: false, blocked: false };   // estado devolvido pelo registo de utilizadores
+const addCatBtn =`<button class="cat-pick add" data-act="newCat" style="--c:var(--accent)"><i class="ic sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></i>Nova</button>`;
 const matchesWords =(desc, words) => { const d = normTxt(desc); return (words || []).some(w => { w = normTxt(w); return w && d.includes(w); }); };
 const guessCat = d => { const c = CUSTOM.find(x => matchesWords(d, x.words)); return c ? c.name : (KW.find(k => k[0].test(d)) || [0, 'Outros'])[1]; };
 
@@ -458,7 +474,7 @@ const LS = {
   set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   del(k){ try { localStorage.removeItem(k); } catch (e) {} }
 };
-const ACCOUNT = { email: LS.get('orc.email') || '' };
+const ACCOUNT = { email: LS.get('orc.email') || '', name: LS.get('orc.name') || '' };
 let TOKEN = LS.get('orc.token');                     // { t, exp }
 let tokenClient = null, pendingAuth = null;
 const tokenValid = () => TOKEN && TOKEN.exp > Date.now() + 30000;
@@ -501,12 +517,42 @@ async function signIn(chooseAccount){
   });
   const me = await gfetch('https://openidconnect.googleapis.com/v1/userinfo');
   if (ACCOUNT.email && me.email !== ACCOUNT.email) { SS = null; }
-  ACCOUNT.email = me.email || '';
-  LS.set('orc.email', ACCOUNT.email);
+  ACCOUNT.email = me.email || ''; ACCOUNT.name = me.name || '';
+  LS.set('orc.email', ACCOUNT.email); LS.set('orc.name', ACCOUNT.name);
+}
+
+/* ---------- registo de utilizadores (quem usa a app; o administrador pode bloquear contas) ---------- */
+// Serviço do administrador: só guarda email, nome e datas de acesso — os dados financeiros ficam na folha de cada pessoa.
+const REG_URL = 'https://script.google.com/macros/s/AKfycbwKAR_CWYUznr0N1Vs8EWG4HT8s7xCFwozWuBxynv7UfGYFRzOxMYJztlzo7ZDRHxycHQ/exec';
+async function regCall(action, extra){
+  if (!tokenValid()) throw new AuthError('Sessão expirada');
+  let r;
+  try { r = await fetch(REG_URL, { method: 'POST', body: JSON.stringify(Object.assign({ action, token: TOKEN.t }, extra || {})) }); }
+  catch (e) { throw new Error('Sem ligação ao registo.'); }
+  const d = await r.json().catch(() => ({ error: 'Registo indisponível.' }));
+  if (d.error) throw new Error(d.error);
+  return d;
+}
+async function regHello(){
+  if (DEMO) { REG.admin = true; return; }
+  try {
+    const d = await regCall('hello', { name: ACCOUNT.name || LS.get('orc.name') || '' });
+    REG.admin = !!d.admin; REG.blocked = !!d.blocked;
+    if (REG.blocked) showBlocked();
+  } catch (e) { /* se o registo falhar, a app continua a funcionar */ }
+}
+function showBlocked(){
+  S.data = null; S.yearData = null; S.fundsData = null; S.recData = null;
+  closeSheet();
+  $('#loginMsg').textContent = 'O acesso desta conta foi bloqueado pelo administrador.';
+  $('#loginBtn').hidden = true; $('#loginOther').hidden = false; $('#loginErr').hidden = true;
+  $('#login').hidden = false; document.body.classList.add('locked');
+  $('#view').innerHTML = '';
 }
 function signOut(){
   if (TOKEN && window.google && google.accounts && google.accounts.oauth2) { try { google.accounts.oauth2.revoke(TOKEN.t, () => {}); } catch (e) {} }
-  TOKEN = null; SS = null; LS.del('orc.token'); LS.del('orc.email');
+  TOKEN = null; SS = null; LS.del('orc.token'); LS.del('orc.email'); LS.del('orc.name');
+  REG.admin = false; REG.blocked = false; S.fundsData = null; S.recData = null;
   ACCOUNT.email = '';
   S.data = null; S.yearData = null;
   closeSheet(); showLogin();
@@ -787,7 +833,14 @@ async function api(action, p){
       await gfetch(`${SHEETS_API}/${ss.id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId: ss.sheetIds.Recorrentes, dimension: 'ROWS', startIndex: r.row - 1, endIndex: r.row } } }] }) });
       return { id: r.id };
     }
-    case 'getMonth': return { auto,
+    case 'setConfig': {
+      const key = String(p.key || ''); if (!/^[a-zA-Z]{1,30}$/.test(key)) throw new Error('Definição inválida.');
+      const val = String(p.value == null ? '' : p.value).slice(0, 100);
+      if (D.cfg[key]) await putValues(ss, `Config!B${D.cfg[key].row}`, [[val]]);
+      else await appendRows(D, 'Config', [[key, val]]);
+      return {};
+    }
+    case 'getMonth': return { auto, appColor: D.cfg.corApp ? String(D.cfg.corApp.value) : '',
       month: p.month, budget: D.months[p.month] ? D.months[p.month].budget : D.def, defaultBudget: D.def,
       goal: D.goals[p.month.slice(0, 4)] ? D.goals[p.month.slice(0, 4)].goal : 0,
       expenses: D.exp.filter(e => e.month === p.month), email: ACCOUNT.email };
@@ -872,6 +925,7 @@ async function api(action, p){
 }
 
 async function call(action, p){
+  if (REG.blocked) throw new Error('Conta bloqueada.');
   if (DEMO) { await new Promise(r => setTimeout(r, 250)); return Mock(action, p || {}); }
   try { return await api(action, p || {}); }
   catch (e) {
@@ -889,7 +943,7 @@ const autoToast = n => { if (n) toast(n === 1 ? '1 despesa recorrente adicionada
 
 async function loadMonth(){
   const req = ++S.seq;
-  try { const d = await call('getMonth', { month:S.month }); if (req !== S.seq) return; S.data = d; render(); autoToast(d.auto); setTimeout(prefetchYear, 600); }
+  try { const d = await call('getMonth', { month:S.month }); if (req !== S.seq) return; S.data = d; if (d.appColor && d.appColor !== APP_COLOR) applyAppColor(d.appColor, true); render(); autoToast(d.auto); setTimeout(prefetchYear, 600); }
   catch (e) { if (!$('#login').hidden) return; toast(e.message); }
 }
 async function loadRec(){
@@ -917,7 +971,7 @@ function showLogin(expired){
   $('#loginLabel').textContent = known ? 'Continuar como ' + ACCOUNT.email : 'Entrar com Google';
   $('#loginOther').hidden = !known;
   $('#loginMsg').textContent = expired ? 'A sessão expirou por segurança. Toca para continuar.' : 'O teu orçamento mensal e objetivo anual, guardados no teu Google Drive.';
-  $('#loginErr').hidden = true;
+  $('#loginErr').hidden = true; $('#loginBtn').hidden = false;
   $('#login').hidden = false; document.body.classList.add('locked');
 }
 function hideLogin(){ $('#login').hidden = true; document.body.classList.remove('locked'); }
@@ -925,6 +979,9 @@ async function doLogin(choose){
   const btn = $('#loginBtn'); btn.disabled = true;
   try {
     await signIn(choose);
+    REG.blocked = false; REG.admin = false;
+    await regHello();
+    if (REG.blocked) return;
     hideLogin(); S.data = null; S.yearData = null; render();
     $('#loginMsg').textContent = 'A preparar a tua folha…';
     await load();
@@ -1001,6 +1058,26 @@ function switchView(to, dir){
   v.classList.add(cls);
   clearTimeout(switchView.t); switchView.t = setTimeout(() => v.classList.remove(cls), 520);   // não repetir a animação quando os dados atualizam
 }
+// depois de uma alteração (despesa, salário, orçamento, subsídio…), volta a ler o Mês e o Ano do Google
+// em segundo plano, para que os outros cartões mostrem logo os valores certos
+let refreshT = null;
+function refreshOthers(){
+  clearTimeout(refreshT);
+  refreshT = setTimeout(async () => {
+    const yr = +S.month.slice(0, 4), month = S.month;
+    try {
+      const [m, y] = await Promise.all([call('getMonth', { month }), call('getYear', { year: yr })]);
+      const sig = d => d ? JSON.stringify([d.budget, d.expenses.map(e => [e.id, e.cents, e.category, e.date, e.desc])]) : '';
+      const monthChanged = S.month === month && !hasPending() && sig(m) !== sig(S.data);
+      const yearChanged = JSON.stringify(y) !== JSON.stringify(S.yearData);
+      if (monthChanged) S.data = m;
+      S.yearData = y;
+      if (DRAG.on) { DRAG.pending = true; return; }
+      if ((S.view === 'year' && yearChanged) || (S.view === 'month' && monthChanged)) render(); else refreshDeckSides();
+    } catch (e) {}
+  }, 350);
+}
+const hasPending = () => !!(S.data && S.data.expenses.some(e => e.pending));
 // carrega o ano e os fundos em segundo plano para os cartões do lado já mostrarem os números
 let prefetching = false;
 async function prefetchYear(){
@@ -1279,7 +1356,7 @@ function kpPress(k){
   KP.dataset.raw = raw; KP.value = kpFormat(raw); buzz();
   KP.dispatchEvent(new Event('input', { bubbles: true }));
 }
-function closeSheet(){ $('#sheet').classList.remove('open'); $('#scrim').classList.remove('open'); unlockBody(); F = null; }
+function closeSheet(){ if (F && F.mode === 'settings' && !F.saved && F.color !== F.colorOrig) applyAppColor(F.colorOrig); $('#sheet').classList.remove('open'); $('#scrim').classList.remove('open'); unlockBody(); F = null; }
 
 let F = null;   // formulário aberto
 function defaultDate(){ return S.month === TODAY_MONTH ? TODAY : S.month + '-01'; }
@@ -1347,7 +1424,7 @@ async function submitForm(btn){
     try {
       const r = await call('updateExpense', { id:F.id, desc, cents, category:F.cat, date });
       const e = S.data.expenses.find(x => x.id === r.id); if (e) Object.assign(e, r);
-      closeSheet(); render(); toast('Despesa corrigida');
+      closeSheet(); render(); toast('Despesa corrigida'); refreshOthers();
     } catch (err) { btn.disabled = false; toast(err.message); }
     return;
   }
@@ -1364,6 +1441,7 @@ async function addItems(items){
     const saved = await call('addExpenses', { items });
     if (S.data && S.data.month === month){ S.data.expenses = S.data.expenses.filter(e => !temps.includes(e)).concat(saved); render(); }
     toast(saved.length === 1 ? saved[0].desc + ' · ' + eur(saved[0].cents) : saved.length + ' despesas registadas');
+    refreshOthers();
     return true;
   } catch (e) {
     if (S.data && S.data.month === month){ S.data.expenses = S.data.expenses.filter(x => !temps.includes(x)); render(); }
@@ -1376,7 +1454,7 @@ async function deleteExp(btn){
   if (btn.dataset.confirm !== '1'){ btn.dataset.confirm = '1'; btn.textContent = 'Tocar de novo para eliminar'; return; }
   btn.disabled = true;
   const id = F.id;
-  try { await call('deleteExpense', { id }); S.data.expenses = S.data.expenses.filter(x => x.id !== id); closeSheet(); render(); toast('Despesa eliminada'); }
+  try { await call('deleteExpense', { id }); S.data.expenses = S.data.expenses.filter(x => x.id !== id); closeSheet(); render(); toast('Despesa eliminada'); refreshOthers(); }
   catch (err) { btn.disabled = false; toast(err.message); }
 }
 
@@ -1386,7 +1464,7 @@ function openSettings(){
   const ym = isMonth ? S.month : (S.year === now.getFullYear() ? TODAY_MONTH : S.year + '-01');
   const year = +ym.slice(0, 4);
   const goal = isMonth ? (d ? d.goal : 0) : (S.yearData ? S.yearData.goal : 0);
-  F = { mode:'settings', month:ym };
+  F = { mode:'settings', month:ym, color: APP_COLOR, colorOrig: APP_COLOR };
   openSheet(`
     <div class="sheet-h"><button data-act="close">Cancelar</button><b>Definições</b><button data-act="saveSettings" style="color:var(--accent);font-weight:700">Guardar</button></div>
     ${isMonth && d ? `<span class="lbl">Orçamento de ${monthLabel(ym)}</span>
@@ -1395,7 +1473,10 @@ function openSettings(){
     ${S.view !== 'year' || !S.yearData ? '' : `<span class="lbl">Objetivo de poupança ${year}</span>
     <input class="field num" id="sGoal" inputmode="none" readonly data-kpf value="${goal ? num(goal) : ''}">`}
     <div style="height:18px"></div>
-    <button class="set-row" style="width:100%" data-act="cats">Categorias <span>${CUSTOM.length ? CUSTOM.length + (CUSTOM.length === 1 ? ' criada' : ' criadas') : 'Criar'} ›</span></button>
+    <span class="lbl">Cor da app</span>
+    <div class="swatches">${APP_COLORS.map(k => `<button class="swatch ${k === F.color ? 'on' : ''}" data-acolor="${k}" style="--c:${k}" aria-label="Cor ${k}"></button>`).join('')}</div>
+    <div style="height:18px"></div>
+    ${REG.admin ? `<button class="set-row" style="width:100%" data-act="admin">Administração <span>›</span></button>` : ''}
     ${ACCOUNT.email ?`<div class="set-row">Conta <span>${esc(ACCOUNT.email)}</span></div>` : ''}
     <button class="set-row logout" style="width:100%" data-act="logout">Terminar sessão
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg></button>`);
@@ -1416,7 +1497,41 @@ async function saveSettings(btn){
   try {
     if (bud != null && (bud !== S.data.budget || (def && bud !== S.data.defaultBudget))) await call('setBudget', { month, cents:bud, makeDefault:def });
     if (gt != null && goal !== S.yearData.goal) await call('setGoal', { year, cents:goal });
-    closeSheet(); toast('Guardado'); load();
+    if (F.color !== F.colorOrig) { await call('setConfig', { key:'corApp', value:F.color }); applyAppColor(F.color, true); }
+    F.saved = true; closeSheet(); toast('Guardado'); load(); refreshOthers();
+  } catch (e) { btn.disabled = false; toast(e.message); }
+}
+
+/* ---------- administração: utilizadores registados e bloqueio ---------- */
+async function openAdmin(){
+  F = { mode:'admin', users:null };
+  openSheet(`
+    <div class="sheet-h"><button data-act="close">Fechar</button><b>Administração</b><button style="visibility:hidden" aria-hidden="true" tabindex="-1">Fechar</button></div>
+    <div id="admList"><div class="sk" style="height:64px;margin-bottom:8px"></div><div class="sk" style="height:64px"></div></div>`);
+  try {
+    const d = DEMO ? { users:[{ email:'pré-visualização', name:'Tu', first:'2026-11-22 10:00', last:'2026-11-23 21:00', blocked:false, admin:true }, { email:'amigo@gmail.com', name:'Amigo', first:'2026-11-23 09:12', last:'2026-11-23 09:40', blocked:false, admin:false }] } : await regCall('users');
+    if (!F || F.mode !== 'admin') return;
+    F.users = d.users; renderAdmin();
+  } catch (e) { if ($('#admList')) $('#admList').innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+}
+function renderAdmin(){
+  const u = F.users.slice().sort((a, b) => String(b.last).localeCompare(String(a.last)));
+  const on = u.filter(x => !x.blocked).length;
+  $('#admList').innerHTML = `
+    <div class="card-h" style="margin:2px 4px 10px"><h3>Utilizadores</h3><span class="hint" style="margin:0">${u.length} ${u.length === 1 ? 'registado' : 'registados'} · ${on} com acesso</span></div>
+    <div class="txs" style="box-shadow:none;background:var(--press)">${u.map(x => `
+      <div class="tx" style="cursor:default">
+        <div class="tx-main"><b>${esc(x.name || x.email)}${x.admin ? ' <span class="tag">admin</span>' : ''}</b><small>${esc(x.email)} · último acesso ${esc(String(x.last).slice(0, 16))}</small></div>
+        ${x.admin ? '' : `<button class="pill ${x.blocked ? '' : 'danger'}" data-block="${esc(x.email)}" data-to="${x.blocked ? '0' : '1'}">${x.blocked ? 'Desbloquear' : 'Bloquear'}</button>`}
+      </div>`).join('')}</div>`;
+}
+async function setBlocked(btn){
+  const email = btn.dataset.block, blocked = btn.dataset.to === '1';
+  btn.disabled = true;
+  try {
+    if (!DEMO) await regCall('setBlocked', { email, blocked });
+    const x = F.users.find(y => y.email === email); if (x) x.blocked = blocked;
+    renderAdmin(); toast(blocked ? 'Utilizador bloqueado' : 'Utilizador desbloqueado');
   } catch (e) { btn.disabled = false; toast(e.message); }
 }
 
@@ -1531,12 +1646,12 @@ function catOrigin(){
     };
   }
   if (F && F.mode === 'rec'){
-    const snap = { id:F.id, cat:F.cat, freq:F.freq, fund:F.fund, day:$('#rDay').value, desc:$('#rDesc').value, val:$('#rVal').value, act:$('#rAct') ? $('#rAct').checked : true };
+    const snap = { id:F.id, cat:F.cat, freq:F.freq, fund:F.fund, rmonth:F.rmonth, desc:$('#rDesc').value, val:$('#rVal').value, act:$('#rAct') ? $('#rAct').checked : true };
     return name => {
       const r = snap.id ? Object.assign({}, S.recData.items.find(x => x.id === snap.id)) : null;
       openRec(r, snap.freq);
-      Object.assign(F, { cat: name || snap.cat, freq: snap.freq, fund: snap.fund });
-      $('#rDesc').value = snap.desc; $('#rVal').value = snap.val; $('#rDay').value = snap.day; if ($('#rAct')) $('#rAct').checked = snap.act;
+      Object.assign(F, { cat: name || snap.cat, freq: snap.freq, fund: snap.fund, rmonth: snap.rmonth });
+      $('#rDesc').value = snap.desc; $('#rVal').value = snap.val; if ($('#rAct')) $('#rAct').checked = snap.act;
       document.querySelectorAll('.cat-pick').forEach(b => b.classList.toggle('on', b.dataset.pick === F.cat));
       updateRecForm();
     };
@@ -1607,7 +1722,7 @@ function openCatManager(){
 }
 
 /* ---------- despesas recorrentes ---------- */
-const dayLabelShort = day => +day.slice(3) + ' ' + MES_C[+day.slice(0, 2) - 1];
+const dayLabelShort = day => MESES[+day.slice(0, 2) - 1];
 function renderRec(){
   const all = S.recData.items, funds = S.recData.funds || [];
   const fundName = id => { const f = funds.find(x => x.id === id); return f ? f.name : 'Orçamento do mês'; };
@@ -1637,8 +1752,7 @@ function openRec(r, freq){
   const isNew = !r;
   r = r || { desc:'', cents:0, category: freq === 'anual' ? 'Outros' : 'Subscrições', active:true, freq: freq || 'mensal', day:'', fund:'' };
   const funds = (S.recData && S.recData.funds) || [];
-  F = { mode:'rec', id:r.id || null, cat:r.category, active:r.active, freq:r.freq || 'mensal', fund:r.fund || '' };
-  const dayVal = r.day ? TODAY.slice(0, 4) + '-' + r.day : '';
+  F = { mode:'rec', id:r.id || null, cat:r.category, active:r.active, freq:r.freq || 'mensal', fund:r.fund || '', rmonth: r.day ? r.day.slice(0, 2) : '' };
   openSheet(`
     <div class="sheet-h"><button data-act="close">Cancelar</button><b>${isNew ? 'Nova recorrente' : 'Editar recorrente'}</b><button data-act="saveRec" style="color:var(--accent);font-weight:700">Guardar</button></div>
     <div class="seg"><button data-freq="mensal">Mensal</button><button data-freq="anual">Anual</button></div>
@@ -1647,8 +1761,8 @@ function openRec(r, freq){
     <span class="lbl" id="rValLbl">Valor</span>
     <input class="field num" id="rVal" inputmode="none" readonly data-kpf value="${r.cents ? num(r.cents) : ''}" autocomplete="off">
     <div id="rYear">
-      <span class="lbl">Data</span>
-      <input type="date" class="field" id="rDay" value="${dayVal}">
+      <span class="lbl">Mês</span>
+      <div class="months-pick">${MES_C.map((m, i) => `<button class="pill" data-rmonth="${pad(i + 1)}">${m}</button>`).join('')}</div>
       <span class="lbl">Pago com</span>
       <div class="pills"><button class="pill" data-pay="">Orçamento do mês</button>${funds.map(f => `<button class="pill" data-pay="${esc(f.id)}"><i class="fund-dot" style="--c:${f.color}"></i>${esc(f.name)}</button>`).join('')}</div>
     </div>
@@ -1661,19 +1775,19 @@ function openRec(r, freq){
 function updateRecForm(){
   document.querySelectorAll('[data-freq]').forEach(b => b.classList.toggle('on', b.dataset.freq === F.freq));
   document.querySelectorAll('[data-pay]').forEach(b => b.classList.toggle('on', b.dataset.pay === F.fund));
-  $('#rYear').hidden = F.freq !== 'anual';
+  document.querySelectorAll('[data-rmonth]').forEach(b => b.classList.toggle('on', b.dataset.rmonth === F.rmonth));
+  $1
   $('#rValLbl').textContent = F.freq === 'anual' ? 'Valor por ano' : 'Valor por mês';
 }
 async function saveRec(btn){
   const desc = $('#rDesc').value.trim(), cents = parseAmount($('#rVal').value);
   if (!desc) return toast('Descrição em falta.');
   if (cents == null || cents <= 0) return toast('Valor inválido.');
-  const dv = $('#rDay').value;
-  if (F.freq === 'anual' && !/^\d{4}-\d{2}-\d{2}$/.test(dv)) return toast('Escolhe a data.');
+  if (F.freq === 'anual' && !F.rmonth) return toast('Escolhe o mês.');
   const active = $('#rAct') ? $('#rAct').checked : true;
   btn.disabled = true;
   try {
-    await call('saveRecurring', { id:F.id, desc, cents, category:F.cat, active, freq:F.freq, day: F.freq === 'anual' ? dv.slice(5) : '', fund: F.freq === 'anual' ? F.fund : '' });
+    await call('saveRecurring', { id:F.id, desc, cents, category:F.cat, active, freq:F.freq, day: F.freq === 'anual' ? F.rmonth + '-01' : '', fund: F.freq === 'anual' ? F.fund : '' });
     closeSheet(); toast('Guardada'); loadRec();
   } catch (e) { btn.disabled = false; toast(e.message); }
 }
@@ -1715,7 +1829,7 @@ async function saveSalary(btn){
   if (t !== '' && (cents == null || cents < 0)) return toast('Salário inválido.');
   if (cents === F.row.salary) return closeSheet();
   btn.disabled = true;
-  try { await call('setSalary', { month:F.month, cents }); closeSheet(); toast('Guardado'); loadYear(); }
+  try { await call('setSalary', { month:F.month, cents }); closeSheet(); toast('Guardado'); loadYear(); refreshOthers(); }
   catch (e) { btn.disabled = false; toast(e.message); }
 }
 
@@ -1742,13 +1856,13 @@ async function saveExtra(btn){
   if (cents == null || cents <= 0) return toast('Valor inválido.');
   if (spent == null || spent < 0) return toast('Valor gasto inválido.');
   btn.disabled = true;
-  try { await call('saveExtra', { id:F.id, year:S.year, desc, cents, spent, date:$('#xDate').value }); closeSheet(); toast('Guardado'); loadYear(); }
+  try { await call('saveExtra', { id:F.id, year:S.year, desc, cents, spent, date:$('#xDate').value }); closeSheet(); toast('Guardado'); loadYear(); refreshOthers(); }
   catch (e) { btn.disabled = false; toast(e.message); }
 }
 async function delExtra(btn){
   if (btn.dataset.sure !== '1'){ btn.dataset.sure = '1'; btn.textContent = 'Toca outra vez para eliminar'; return; }
   btn.disabled = true;
-  try { await call('deleteExtra', { id:F.id }); closeSheet(); toast('Eliminado'); loadYear(); }
+  try { await call('deleteExtra', { id:F.id }); closeSheet(); toast('Eliminado'); loadYear(); refreshOthers(); }
   catch (e) { btn.disabled = false; toast(e.message); }
 }
 
@@ -1764,10 +1878,12 @@ function shift(dir){
 
 /* ============================== eventos ============================== */
 document.addEventListener('click', ev => {
-  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra],[data-rec],[data-color],[data-icon],[data-editcat],[data-fund],[data-move],[data-mtype],[data-mfund],[data-pay],[data-freq],[data-kp],[data-kpf]');
+  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra],[data-rec],[data-color],[data-icon],[data-editcat],[data-fund],[data-move],[data-mtype],[data-mfund],[data-pay],[data-freq],[data-rmonth],[data-kp],[data-kpf],[data-acolor],[data-block]');
   if (!el) return;
   const ds = el.dataset;
   if (ds.kp){ kpPress(ds.kp); return; }
+  if (ds.block && F && F.mode === 'admin'){ setBlocked(el); return; }
+  if (ds.acolor && F && F.mode === 'settings'){ F.color = ds.acolor; buzz(); applyAppColor(F.color); document.querySelectorAll('[data-acolor]').forEach(b => b.classList.toggle('on', b.dataset.acolor === F.color)); return; }
   if ('kpf' in ds){ kpActivate(el); return; }
   if (ds.color && F && F.mode === 'cat'){ F.color = ds.color; buzz(); updateCatForm(); return; }
   if (ds.color && F && F.mode === 'fund'){ F.color = ds.color; buzz(); document.querySelectorAll('.swatch').forEach(b => b.classList.toggle('on', b.dataset.color === F.color)); return; }
@@ -1778,6 +1894,7 @@ document.addEventListener('click', ev => {
   if (ds.pick && F && F.mode === 'move'){ F.cat = ds.pick; buzz(); updateMoveForm(); return; }
   if (ds.pay != null && F && F.mode === 'rec'){ F.fund = ds.pay; buzz(); updateRecForm(); return; }
   if (ds.freq && F && F.mode === 'rec'){ F.freq = ds.freq; buzz(); updateRecForm(); return; }
+  if (ds.rmonth && F && F.mode === 'rec'){ F.rmonth = ds.rmonth; buzz(); updateRecForm(); return; }
   if (ds.icon && F && F.mode === 'cat'){ F.icon = ds.icon; buzz(); updateCatForm(); return; }
   if (ds.editcat){ const c = CUSTOM.find(x => x.name === ds.editcat); if (c) openCategory(c, () => openCatManager()); return; }
   if (ds.rec){ const r = S.recData.items.find(x => x.id === ds.rec); if (r) openRec(r); return; }
@@ -1823,6 +1940,7 @@ document.addEventListener('click', ev => {
     case 'delCat': delCat(el); break;
     case 'catBack': F.back(null); break;
     case 'cats': openCatManager(); break;
+    case 'admin': openAdmin(); break;
     case 'addRec': openRec(null); break;
     case 'addRecY': openRec(null, 'anual'); break;
     case 'newFund': openFund(null); break;
@@ -1871,6 +1989,19 @@ document.addEventListener('keydown', ev => {
 });
 // a janela fecha com "Cancelar" ou arrastando-a para baixo (tocar fora não fecha, para não perder o que se escreveu)
 $('#scrim').addEventListener('touchmove', ev => ev.preventDefault(), { passive: false });
+// manter o dedo numa categoria criada por ti (na lista do mês) abre-a para editar ou eliminar
+(() => {
+  let t = null, fired = false;
+  const view = document.getElementById('view');
+  view.addEventListener('touchstart', ev => {
+    const chip = ev.target.closest('.cat-chip[data-cat]'); fired = false; clearTimeout(t);
+    if (!chip) return;
+    const c = CUSTOM.find(x => x.name === chip.dataset.cat); if (!c) return;
+    t = setTimeout(() => { fired = true; buzz(); openCategory(c, null); }, 550);
+  }, { passive: true });
+  ['touchmove', 'touchend', 'touchcancel'].forEach(n => view.addEventListener(n, () => clearTimeout(t), { passive: true }));
+  view.addEventListener('click', ev => { if (fired && ev.target.closest('.cat-chip')) { ev.stopPropagation(); ev.preventDefault(); fired = false; } }, true);
+})();
 (() => {
   const sh = $('#sheet'), scrim = $('#scrim');
   let y0, x0, dy, mode, lastY, lastT, vel;
@@ -1925,7 +2056,7 @@ const Mock = (() => {
     applyCustomCats(d.cats || []);
     const bud = m => d.months[m] != null ? d.months[m] : d.def;
     switch (a){
-      case 'getMonth': r = { month:p.month, budget:bud(p.month), defaultBudget:d.def, goal:d.goals[p.month.slice(0, 4)] || 0, expenses:d.exp.filter(e => e.month === p.month), email:'pré-visualização', sheetUrl:'' }; break;
+      case 'getMonth': r = { appColor:(d.cfg || {}).corApp || '', month:p.month, budget:bud(p.month), defaultBudget:d.def, goal:d.goals[p.month.slice(0, 4)] || 0, expenses:d.exp.filter(e => e.month === p.month), email:'pré-visualização', sheetUrl:'' }; break;
       case 'addExpenses': r = p.items.map(it => { const e = Object.assign({}, it, { id:'n' + (d.n++) }); d.exp.push(e); if (d.months[it.month] == null) d.months[it.month] = d.def; return e; }); break;
       case 'updateExpense': { const e = d.exp.find(x => x.id === p.id); if (!e) throw new Error('Despesa não encontrada.'); Object.assign(e, { desc:p.desc, cents:p.cents, category:p.category }); if (p.date && p.date.slice(0, 7) === e.month) e.date = p.date; r = e; break; }
       case 'deleteExpense': d.exp = d.exp.filter(x => x.id !== p.id); r = { id:p.id }; break;
@@ -1970,6 +2101,7 @@ const Mock = (() => {
         if (p.applyNow && !p.id) d.exp.push({ id:'n' + (d.n++), date:TODAY_MONTH + '-01', month:TODAY_MONTH, desc:p.desc, cents:p.cents, category:p.category });
         r = { id:rec.id }; break;
       }
+      case 'setConfig': d.cfg = d.cfg || {}; d.cfg[p.key] = p.value; r = {}; break;
       case 'deleteRecurring': d.rec = (d.rec || []).filter(x => x.id !== p.id); r = { id:p.id }; break;
       case 'saveCategory': {
         d.cats = (d.cats || []).filter(c => c.name !== p.oldName);
@@ -1988,11 +2120,16 @@ const Mock = (() => {
 
 /* ============================== arranque ============================== */
 render();
-if (DEMO) { ACCOUNT.email = 'pré-visualização'; loadMonth(); }
-else if (tokenValid() && ACCOUNT.email) { loadMonth(); initAuth().catch(() => {}); }
+if (DEMO) { ACCOUNT.email = 'pré-visualização'; regHello(); loadMonth(); }
+else if (tokenValid() && ACCOUNT.email) { loadMonth(); regHello(); initAuth().catch(() => {}); }
 else { showLogin(false); initAuth().catch(e => { $('#loginErr').textContent = e.message; $('#loginErr').hidden = false; }); }
 // ao voltar à app depois de muito tempo, pede para continuar se a sessão expirou
-document.addEventListener('visibilitychange', () => { if (!DEMO && document.visibilityState === 'visible' && $('#login').hidden && !tokenValid()) showLogin(true); });
+document.addEventListener('visibilitychange', () => {
+  if (DEMO || document.visibilityState !== 'visible' || !$('#login').hidden) return;
+  if (!tokenValid()) return showLogin(true);
+  // ao voltar à app (o iPhone mantém-na aberta em memória), lê de novo os valores do Google
+  if (!F) { load(); refreshOthers(); }
+});
 // versão nova publicada → o service worker novo assume e a app recarrega sozinha (uma vez)
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   const hadSW = !!navigator.serviceWorker.controller;
