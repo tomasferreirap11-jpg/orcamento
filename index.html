@@ -74,11 +74,15 @@ main{max-width:520px;margin:0 auto;padding:4px 16px 0;display:flex;flex-directio
 .hero-dots{position:absolute;left:0;right:0;bottom:6px;display:flex;justify-content:center;gap:5px;pointer-events:none}
 .hero-dots i{width:5px;height:5px;border-radius:9px;background:#fff;opacity:.4;transition:width .2s,opacity .2s}
 .hero-dots i.on{width:14px;opacity:.95}
-.view-in-r{animation:inR .42s cubic-bezier(.22,.9,.3,1) both}
-.view-in-l{animation:inL .42s cubic-bezier(.22,.9,.3,1) both}
-@keyframes inR{from{opacity:0;transform:translateX(36px)}to{opacity:1;transform:none}}
-@keyframes inL{from{opacity:0;transform:translateX(-36px)}to{opacity:1;transform:none}}
-.hero{will-change:transform}
+.view-in-r > :not(.deck){animation:inR .45s cubic-bezier(.2,.9,.25,1) both}
+.view-in-l > :not(.deck){animation:inL .45s cubic-bezier(.2,.9,.25,1) both}
+@keyframes inR{from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}}
+@keyframes inL{from{opacity:0;transform:translateX(-28px)}to{opacity:1;transform:none}}
+.deck{position:relative;overflow:hidden;margin:0 -16px -24px;padding:0 16px 24px;touch-action:pan-y;box-sizing:content-box}
+.deck-track{display:flex;gap:16px;align-items:flex-start;transform:translateX(calc(-100% - 16px));will-change:transform}
+.deck-slot{flex:0 0 100%;min-width:0}
+.deck-slot .hero{transform-origin:center center;will-change:transform}
+.deck-slot.side .hero{transform:scale(.94);opacity:.75}
 @media (prefers-reduced-motion: reduce){.view-in-r,.view-in-l{animation:none}}
 .ring{width:86px;height:86px;flex:none}
 .ring circle{fill:none;stroke-width:8}
@@ -109,6 +113,18 @@ main{max-width:520px;margin:0 auto;padding:4px 16px 0;display:flex;flex-directio
 .cat-chip b{display:block;font-size:15px;font-weight:700;margin-top:1px}
 .cat-chip .mini{height:4px;border-radius:9px;background:var(--line);margin-top:8px;overflow:hidden}
 .cat-chip .mini i{display:block;height:100%;background:var(--c);border-radius:9px}
+.cat-chip.add{width:96px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:transparent;box-shadow:none;border:1.5px dashed var(--line);color:var(--accent)}
+.cat-chip.add svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+.cat-chip.add small{color:var(--accent);white-space:normal;text-align:center;line-height:1.2}
+.cat-pick.add{color:var(--accent)}
+.swatches{display:flex;flex-wrap:wrap;gap:10px}
+.swatch{width:34px;height:34px;border-radius:50%;background:var(--c);border:3px solid transparent;box-shadow:0 0 0 1px var(--line)}
+.swatch.on{border-color:var(--card);box-shadow:0 0 0 2px var(--c)}
+.icons{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.icon-pick{aspect-ratio:1;border-radius:14px;display:grid;place-items:center;background:var(--press);border:1.5px solid transparent}
+.icon-pick svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.icon-pick.on{border-color:var(--c);color:var(--c);background:color-mix(in srgb,var(--c) 10%,transparent)}
+.cat-prev{display:flex;align-items:center;gap:12px;margin:4px 4px 0;font-weight:700}
 
 /* icons */
 .ic{--c:#999;width:40px;height:40px;flex:none;border-radius:13px;display:grid;place-items:center;color:var(--c);background:color-mix(in srgb,var(--c) 15%,transparent)}
@@ -316,7 +332,8 @@ const CAT = {
 const CATS = Object.keys(CAT);
 const KW = [
   [/g[aá]s[oó]leo|gasolina|combust[ií]vel/i, 'Combustível'],
-  [/via ?verde|portage|galp|repsol|\bbp\b|uber|bolt|\bcp\b|metro|estaciona|parque/i, 'Transportes'],
+  [/\brepsol\b|\bbp\b|\bgalp\b|\bprio\b/i, 'Combustível'],
+  [/via ?verde|portage|uber|bolt|\bcp\b|metro|estaciona|parque/i, 'Transportes'],
   [/netflix|spotify|apple|icloud|claude|chatgpt|disney|hbo|max\b|prime video|gin[aá]sio|youtube/i, 'Subscrições'],
   [/farm[aá]cia|m[eé]dic|cl[ií]nica|dentista|hospital|an[aá]lises/i, 'Saúde'],
   [/banco|taxa|imposto|mb ?way|comiss/i, 'Taxas'],
@@ -325,7 +342,36 @@ const KW = [
   [/renda|\bluz\b|[aá]gua|\bg[aá]s\b|internet|\bmeo\b|\bnos\b|vodafone|digi|edp|condom[ií]nio/i, 'Casa'],
   [/cinema|concerto|\bbar\b|viagem|hotel|bilhete|festa/i, 'Lazer']
 ];
-const guessCat = d => (KW.find(k => k[0].test(d)) || [0, 'Outros'])[1];
+/* ---------- categorias criadas pelo utilizador (folha "Categorias") ---------- */
+const BUILTIN = Object.keys(CAT);
+const CAT_ICONS = {
+  tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="7.5" r="1.5"/>',
+  gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v9h14v-9M12 8v13M12 8C10 4 6 4 6 6.5S9 8 12 8zm0 0c2-4 6-4 6-1.5S15 8 12 8z"/>',
+  fork: '<path d="M7 3v8a2 2 0 0 0 2 2v8M5 3v5a2 2 0 0 0 2 2M11 3v5a2 2 0 0 1-2 2M17 21V3c-2 1-3 4-3 8h3"/>',
+  cup: '<path d="M4 8h13v5a6 6 0 0 1-6 6h-1a6 6 0 0 1-6-6z"/><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17M8 3v2M12 3v2"/>',
+  shirt: '<path d="M8 3L3 6l2 4 3-1v12h8V9l3 1 2-4-5-3a4 4 0 0 1-8 0z"/>',
+  car: '<path d="M5 17h14M5 17v-5l2-5h10l2 5v5M7 17v2M17 17v2"/><circle cx="8.5" cy="13.5" r="1"/><circle cx="15.5" cy="13.5" r="1"/>',
+  scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 7.5L20 19M8.5 16.5L20 5"/>',
+  dumbbell: '<path d="M6 7v10M3 9v6M18 7v10M21 9v6M6 12h12"/>',
+  paw: '<circle cx="5" cy="10" r="2"/><circle cx="9" cy="5" r="2"/><circle cx="15" cy="5" r="2"/><circle cx="19" cy="10" r="2"/><path d="M12 11c-3 0-6 4-6 7a2 2 0 0 0 2 2c1.5 0 2.5-1 4-1s2.5 1 4 1a2 2 0 0 0 2-2c0-3-3-7-6-7z"/>',
+  plane: '<path d="M2 12l20-8-6 17-4-7z"/><path d="M12 14l4-4"/>',
+  book: '<path d="M4 4h6a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4z"/><path d="M20 4h-6a3 3 0 0 0-3 3M20 4v14h-7"/>',
+  game: '<rect x="2" y="7" width="20" height="10" rx="5"/><path d="M7 10v4M5 12h4M15.5 11h.01M18 13h.01"/>',
+  phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
+  baby: '<circle cx="12" cy="8" r="4"/><path d="M5 21a7 7 0 0 1 14 0"/>'
+};
+const CAT_COLORS = ['#ef6c57', '#f59e0b', '#84cc16', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#78716c'];
+const normTxt = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+let CUSTOM = [];   // [{ name, color, icon, words: [] }]
+function applyCustomCats(list){
+  CUSTOM = (list || []).filter(c => c.name && !BUILTIN.includes(c.name));
+  Object.keys(CAT).forEach(k => { if (!BUILTIN.includes(k)) delete CAT[k]; });
+  CUSTOM.forEach(c => { CAT[c.name] = { c: CAT_COLORS.includes(c.color) || /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : CAT_COLORS[0], i: CAT_ICONS[c.icon] || CAT_ICONS.tag, custom: true }; });
+  CATS.splice(0, CATS.length, ...BUILTIN.filter(k => k !== 'Outros'), ...CUSTOM.map(c => c.name), 'Outros');
+}
+const addCatBtn = `<button class="cat-pick add" data-act="newCat" style="--c:var(--accent)"><i class="ic sm"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></i>Nova</button>`;
+const matchesWords =(desc, words) => { const d = normTxt(desc); return (words || []).some(w => { w = normTxt(w); return w && d.includes(w); }); };
+const guessCat = d => { const c = CUSTOM.find(x => matchesWords(d, x.words)); return c ? c.name : (KW.find(k => k[0].test(d)) || [0, 'Outros'])[1]; };
 
 /* ============================== util ============================== */
 const $ = s => document.querySelector(s);
@@ -492,12 +538,12 @@ async function loadMeta(id){
   const m = await gfetch(`${SHEETS_API}/${id}?fields=sheets.properties(sheetId,title)`);
   const sheetIds = {}; m.sheets.forEach(s => { sheetIds[s.properties.title] = s.properties.sheetId; });
   if (sheetIds.Despesas == null) { const e = new Error('Folha inválida'); e.status = 404; throw e; }
-  if (sheetIds.Extras == null || sheetIds.Recorrentes == null) await addMissingSheets(id, sheetIds);
+  if (sheetIds.Extras == null || sheetIds.Recorrentes == null || sheetIds.Categorias == null) await addMissingSheets(id, sheetIds);
   return { id, sheetIds };
 }
 // folhas antigas: acrescenta as folhas novas ("Extras", "Recorrentes") e a coluna do salário em "Meses"
 async function addMissingSheets(id, sheetIds){
-  const want = [['Extras', EXTRAS_HEAD, 'F'], ['Recorrentes', REC_HEAD, 'G']].filter(w => sheetIds[w[0]] == null);
+  const want = [['Extras', EXTRAS_HEAD, 'F'], ['Recorrentes', REC_HEAD, 'G'], ['Categorias', CATS_HEAD, 'D']].filter(w => sheetIds[w[0]] == null);
   const r = await gfetch(`${SHEETS_API}/${id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests:
     want.map(w => ({ addSheet: { properties: { title: w[0], gridProperties: { frozenRowCount: 1 } } } })) }) });
   want.forEach((w, i) => { sheetIds[w[0]] = r.replies[i].addSheet.properties.sheetId; });
@@ -507,6 +553,7 @@ async function addMissingSheets(id, sheetIds){
 }
 const EXTRAS_HEAD = ['ID', 'Ano', 'Data', 'Descrição', 'Valor (€)', 'Gasto (€)'];
 const REC_HEAD = ['ID', 'Descrição', 'Valor (€)', 'Categoria', 'Ativa', 'Último mês', 'Criado em'];
+const CATS_HEAD = ['Nome', 'Cor', 'Ícone', 'Palavras-chave'];
 async function createSS(){
   const head = cols => ({ values: cols.map(c => ({ userEnteredValue: { stringValue: c }, userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: .886, green: .941, blue: .91 } } })) });
   const sheet = (title, id, cols, extra) => ({ properties: { title, sheetId: id, gridProperties: { frozenRowCount: 1 } }, data: [{ rowData: [head(cols)].concat(extra || []) }] });
@@ -517,6 +564,7 @@ async function createSS(){
       sheet('Meses', 1, ['Mês', 'Orçamento (€)', 'Salário (€)']),
       sheet('Extras', 4, EXTRAS_HEAD),
       sheet('Recorrentes', 5, REC_HEAD),
+      sheet('Categorias', 6, CATS_HEAD),
       sheet('Objetivos', 2, ['Ano', 'Meta de poupança (€)']),
       sheet('Config', 3, ['Chave', 'Valor'], [{ values: [{ userEnteredValue: { stringValue: 'orcamentoPadrao' } }, { userEnteredValue: { numberValue: 400 } }] }])
     ]
@@ -528,15 +576,17 @@ async function createSS(){
     { updateDimensionProperties: { range: { sheetId: 0, dimension: 'COLUMNS', startIndex: 3, endIndex: 4 }, properties: { pixelSize: 220 }, fields: 'pixelSize' } }
   ] }) });
   await gfetch(`${DRIVE_API}/${ss.spreadsheetId}`, { method: 'PATCH', body: JSON.stringify({ appProperties: { orcamentoApp: '1' } }) });
-  return { id: ss.spreadsheetId, sheetIds: { Despesas: 0, Meses: 1, Objetivos: 2, Config: 3, Extras: 4, Recorrentes: 5 } };
+  return { id: ss.spreadsheetId, sheetIds: { Despesas: 0, Meses: 1, Objetivos: 2, Config: 3, Extras: 4, Recorrentes: 5, Categorias: 6 } };
 }
 
 const toStr = v => v == null ? '' : String(v);
 async function readAll(){
   const ss = await getSS();
-  const ranges = ['Despesas!A2:F', 'Meses!A2:C', 'Objetivos!A2:B', 'Config!A2:B', 'Extras!A2:F', 'Recorrentes!A2:F'].map(r => 'ranges=' + encodeURIComponent(r)).join('&');
+  const ranges = ['Despesas!A2:F', 'Meses!A2:C', 'Objetivos!A2:B', 'Config!A2:B', 'Extras!A2:F', 'Recorrentes!A2:F', 'Categorias!A2:D'].map(r => 'ranges=' + encodeURIComponent(r)).join('&');
   const r = await gfetch(`${SHEETS_API}/${ss.id}/values:batchGet?${ranges}&valueRenderOption=UNFORMATTED_VALUE`);
   const v = i => (r.valueRanges[i] && r.valueRanges[i].values) || [];
+  const cats = v(6).map((x, i) => ({ row: i + 2, name: cleanDesc(x[0]).slice(0, 30), color: toStr(x[1]), icon: toStr(x[2]), words: toStr(x[3]).split(',').map(w => w.trim()).filter(Boolean) })).filter(c => c.name);
+  applyCustomCats(cats);
   const exp = v(0).map((x, i) => ({ row: i + 2, id: toStr(x[0]), date: toStr(x[1]), month: toStr(x[2]), desc: toStr(x[3]), cents: Math.round(Number(x[4]) * 100), category: CAT[x[5]] ? x[5] : 'Outros' }))
     .filter(e => e.id && /^\d{4}-\d{2}$/.test(e.month) && isFinite(e.cents));
   const cents = x => x === '' || x == null || !isFinite(Number(x)) ? null : Math.round(Number(x) * 100);
@@ -548,8 +598,8 @@ async function readAll(){
   // próxima linha livre de cada folha (escrevemos sempre em posições exatas; o "append" do Google pode desalinhar colunas)
   const rec = v(5).map((x, i) => ({ row: i + 2, id: toStr(x[0]), desc: toStr(x[1]), cents: cents(x[2]) || 0, category: CAT[x[3]] ? x[3] : 'Outros',
     active: !(x[4] === false || /^(false|não|nao|0)$/i.test(toStr(x[4]))), last: toStr(x[5]) })).filter(r => r.id);
-  const next = { Despesas: v(0).length + 2, Meses: v(1).length + 2, Objetivos: v(2).length + 2, Config: v(3).length + 2, Extras: v(4).length + 2, Recorrentes: v(5).length + 2 };
-  return { ss, exp, months, goals, cfg, extras, rec, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
+  const next = { Despesas: v(0).length + 2, Meses: v(1).length + 2, Objetivos: v(2).length + 2, Config: v(3).length + 2, Extras: v(4).length + 2, Recorrentes: v(5).length + 2, Categorias: v(6).length + 2 };
+  return { ss, exp, months, goals, cfg, extras, rec, cats, next, def: Math.round((isFinite(dv) && dv >= 0 ? dv : 400) * 100) };
 }
 const putValues = (ss, range, values) => gfetch(`${SHEETS_API}/${ss.id}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { method: 'PUT', body: JSON.stringify({ values }) });
 // escreve linhas novas a partir da próxima linha livre, nas colunas exatas (A…)
@@ -595,6 +645,38 @@ async function api(action, p){
   const ss = D.ss;
   switch (action){
     case 'getRecurring': return { items: D.rec.map(({ row, ...r }) => r), auto };
+    case 'saveCategory': {
+      const name = cleanDesc(p.name).slice(0, 30); if (!name) throw new Error('Nome em falta.');
+      const old = p.oldName ? D.cats.find(c => c.name === p.oldName) : null;
+      if (p.oldName && !old) throw new Error('Categoria não encontrada — atualiza a app.');
+      if (BUILTIN.some(b => normTxt(b) === normTxt(name)) || D.cats.some(c => c !== old && normTxt(c.name) === normTxt(name))) throw new Error('Já existe uma categoria com esse nome.');
+      const words = (p.words || []).map(w => cleanDesc(w).replace(/,/g, '')).filter(Boolean).slice(0, 30);
+      const row = [name, CAT_COLORS.includes(p.color) ? p.color : CAT_COLORS[0], CAT_ICONS[p.icon] ? p.icon : 'tag', words.join(', ')];
+      const data = [];
+      if (old){
+        data.push({ range: `Categorias!A${old.row}:D${old.row}`, values: [row] });
+        if (old.name !== name){   // mudar o nome também nas despesas e recorrentes
+          D.exp.filter(e => e.category === old.name).forEach(e => data.push({ range: `Despesas!F${e.row}`, values: [[name]] }));
+          D.rec.filter(r => r.category === old.name).forEach(r => data.push({ range: `Recorrentes!D${r.row}`, values: [[name]] }));
+        }
+      } else data.push({ range: `Categorias!A${D.next.Categorias}:D${D.next.Categorias}`, values: [row] });
+      let moved = 0;
+      if (p.applyExisting && words.length){
+        D.exp.filter(e => e.category !== name && (!old || e.category !== old.name) && matchesWords(e.desc, words)).forEach(e => { moved++; data.push({ range: `Despesas!F${e.row}`, values: [[name]] }); });
+      }
+      for (let i = 0; i < data.length; i += 400)
+        await gfetch(`${SHEETS_API}/${ss.id}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data: data.slice(i, i + 400) }) });
+      return { name, moved };
+    }
+    case 'deleteCategory': {
+      const c = D.cats.find(x => x.name === p.name); if (!c) throw new Error('Categoria não encontrada — atualiza a app.');
+      const data = D.exp.filter(e => e.category === c.name).map(e => ({ range: `Despesas!F${e.row}`, values: [['Outros']] }))
+        .concat(D.rec.filter(r => r.category === c.name).map(r => ({ range: `Recorrentes!D${r.row}`, values: [['Outros']] })));
+      for (let i = 0; i < data.length; i += 400)
+        await gfetch(`${SHEETS_API}/${ss.id}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data: data.slice(i, i + 400) }) });
+      await gfetch(`${SHEETS_API}/${ss.id}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId: ss.sheetIds.Categorias, dimension: 'ROWS', startIndex: c.row - 1, endIndex: c.row } } }] }) });
+      return { name: c.name };
+    }
     case 'saveRecurring': {
       const desc = cleanDesc(p.desc); if (!desc) throw new Error('Descrição em falta.');
       const cents = checkCents(p.cents), category = CAT[p.category] ? p.category : 'Outros', active = p.active !== false;
@@ -757,6 +839,8 @@ async function doLogin(choose){
 
 /* ============================== render ============================== */
 function render(){
+  if (DRAG.on){ DRAG.pending = true; return; }   // não mexe no ecrã a meio de um arrasto
+  DRAG.pending = false;
   document.body.classList.toggle('sim', S.view === 'month' && S.sim.on);
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === (S.view === 'year' ? 'month' : S.view)));
   $('#title').textContent = S.view === 'month' ? monthLabel(S.month) : S.view === 'rec' ? 'Recorrentes' : String(S.year);
@@ -764,59 +848,112 @@ function render(){
   if (S.view === 'month') (S.data && S.data.month === S.month) ? renderMonth() : skeleton();
   else if (S.view === 'rec') S.recData ? renderRec() : skeleton();
   else (S.yearData && S.yearData.year === S.year) ? renderYear() : skeleton();
-  const h = $('#view .hero');
-  if (h) h.insertAdjacentHTML('beforeend', `<div class="hero-dots" aria-hidden="true"><i class="${S.view === 'month' ? 'on' : ''}"></i><i class="${S.view === 'year' ? 'on' : ''}"></i></div>`);
+  if (S.view === 'month' || S.view === 'year') buildDeck();
 }
-// trocar entre Mês e Ano com um swipe horizontal no cartão verde
+
+/* ---------- carrossel de cartões (Mês ⇄ Ano), como os cartões de uma app de banco ---------- */
+// O cartão atual fica ao centro, com o outro cartão de cada lado: arrastar para qualquer lado mostra o outro.
 const reduceMotion = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const DECK_GAP = 16;
+const otherView = () => S.view === 'month' ? 'year' : 'month';
+function heroFor(view){
+  const box = document.createElement('div');
+  if (view === 'month' && S.data && S.data.month === S.month) renderMonth(box);
+  else if (view === 'year' && S.yearData && S.yearData.year === +S.month.slice(0, 4)) renderYear(box);
+  let h = box.querySelector('.hero');
+  if (!h){
+    box.innerHTML = `<section class="hero"><div class="hero-top"><span class="eyebrow">${view === 'year' ? 'Guardado em ' + S.month.slice(0, 4) : monthLabel(S.month)}</span></div><div class="big" style="opacity:.55">···</div></section>`;
+    h = box.firstElementChild;
+  }
+  return h;
+}
+function withDots(h, view){
+  h.querySelectorAll('.hero-dots').forEach(x => x.remove());
+  h.insertAdjacentHTML('beforeend', `<div class="hero-dots" aria-hidden="true"><i class="${view === 'month' ? 'on' : ''}"></i><i class="${view === 'year' ? 'on' : ''}"></i></div>`);
+  return h;
+}
+function buildDeck(){
+  const h = $('#view .hero'); if (!h || h.closest('.deck')) return;
+  const deck = document.createElement('div'); deck.className = 'deck';
+  const track = document.createElement('div'); track.className = 'deck-track';
+  const slot = (el, side) => { const s = document.createElement('div'); s.className = 'deck-slot' + (side ? ' side' : ''); s.appendChild(el); return s; };
+  h.replaceWith(deck); deck.appendChild(track);
+  const ov = otherView();
+  track.append(slot(withDots(heroFor(ov), ov), true), slot(withDots(h, S.view), false), slot(withDots(heroFor(ov), ov), true));
+  deck.style.height = track.children[1].offsetHeight + 'px';
+}
+function refreshDeckSides(){
+  const track = $('#view .deck-track'); if (!track || DRAG.on) return;
+  const ov = otherView();
+  [0, 2].forEach(i => { const s = track.children[i]; s.replaceChildren(withDots(heroFor(ov), ov)); });
+}
 function switchView(to, dir){
   if (to === S.view) return;
   S.view = to;
   if (to === 'year') S.year = +S.month.slice(0, 4);
-  render(); load();   // usa os dados já carregados (sem "esqueleto") e atualiza em silêncio
+  render(); load();   // usa os dados já carregados e atualiza em silêncio
   if (reduceMotion()) return;
   const v = $('#view'); v.classList.remove('view-in-r', 'view-in-l'); void v.offsetWidth;
   v.classList.add((dir || (to === 'year' ? -1 : 1)) < 0 ? 'view-in-r' : 'view-in-l');
 }
-// carrega o ano em segundo plano para o swipe abrir logo
+// carrega o ano em segundo plano para o cartão do lado já mostrar os números
 let prefetching = false;
 async function prefetchYear(){
   const yr = +S.month.slice(0, 4);
   if (prefetching || (S.yearData && S.yearData.year === yr)) return;
   prefetching = true;
-  try { const d = await call('getYear', { year: yr }); if (!S.yearData || S.yearData.year !== yr || S.view !== 'year') S.yearData = d; } catch (e) {} finally { prefetching = false; }
+  try { const d = await call('getYear', { year: yr }); if (!S.yearData || S.yearData.year !== yr || S.view !== 'year') { S.yearData = d; if (S.view === 'month') refreshDeckSides(); } } catch (e) {} finally { prefetching = false; }
 }
+const DRAG = { on:false };
 (() => {
-  let sx = 0, sy = 0, dx = 0, hero = null, mode = null;   // mode: null (a decidir) | 'x' (arrastar) | 'y' (deslocar página)
   const view = document.getElementById('view');
-  const ease = 'transform .32s cubic-bezier(.22,.9,.3,1), opacity .32s ease';
+  const spring = 'cubic-bezier(.2,.9,.25,1)';
+  let sx, sy, t0, dx, mode, deck, track, w, hCur, hOther, lastX, lastT, vel;
+  const setP = (p, dk = deck) => {   // p: 0 (cartão atual) → 1 (outro cartão)
+    const cur = track.children[1].firstElementChild, a = track.children[0].firstElementChild, b = track.children[2].firstElementChild;
+    cur.style.transform = `scale(${1 - .06 * p})`; cur.style.opacity = String(1 - .25 * p);
+    [a, b].forEach(x => { x.style.transform = `scale(${.94 + .06 * p})`; x.style.opacity = String(.75 + .25 * p); });
+    dk.style.height = (hCur + (hOther - hCur) * p) + 'px';
+  };
   view.addEventListener('touchstart', ev => {
-    hero = ev.touches.length === 1 && S.view !== 'rec' ? ev.target.closest('.hero') : null;
-    if (!hero) return;
-    sx = ev.touches[0].clientX; sy = ev.touches[0].clientY; dx = 0; mode = null;
-    hero.style.transition = 'none';
+    deck = ev.touches.length === 1 && (S.view === 'month' || S.view === 'year') ? ev.target.closest('.deck') : null;
+    if (!deck) return;
+    track = deck.firstElementChild; w = track.clientWidth;
+    hCur = track.children[1].offsetHeight; hOther = track.children[2].offsetHeight;
+    sx = lastX = ev.touches[0].clientX; sy = ev.touches[0].clientY; t0 = lastT = performance.now(); dx = 0; vel = 0; mode = null;
+    track.style.transition = 'none'; deck.style.transition = 'none';
+    track.querySelectorAll('.hero').forEach(x => { x.style.transition = 'none'; });
   }, { passive: true });
   view.addEventListener('touchmove', ev => {
-    if (!hero) return;
+    if (!deck) return;
     const t = ev.touches[0], mx = t.clientX - sx, my = t.clientY - sy;
-    if (!mode){ if (Math.abs(mx) < 8 && Math.abs(my) < 8) return; mode = Math.abs(mx) > Math.abs(my) ? 'x' : 'y'; }
+    if (!mode){ if (Math.abs(mx) < 6 && Math.abs(my) < 6) return; mode = Math.abs(mx) > Math.abs(my) ? 'x' : 'y'; if (mode === 'x') DRAG.on = true; }
     if (mode !== 'x') return;
-    dx = mx;
-    hero.style.transform = `translateX(${dx}px) rotate(${dx / 60}deg)`;
-    hero.style.opacity = String(1 - Math.min(.35, Math.abs(dx) / 900));
+    const now = performance.now(); vel = (t.clientX - lastX) / Math.max(1, now - lastT); lastX = t.clientX; lastT = now;
+    const max = w + DECK_GAP;
+    dx = Math.abs(mx) > max ? Math.sign(mx) * (max + (Math.abs(mx) - max) * .3) : mx;   // resistência no fim
+    track.style.transform = `translateX(calc(-100% - ${DECK_GAP}px + ${dx}px))`;
+    setP(Math.min(1, Math.abs(dx) / max));
   }, { passive: true });
   const end = () => {
-    if (!hero) return;
-    const h = hero; hero = null;
-    if (mode !== 'x'){ h.style.transition = ''; return; }
-    const w = h.offsetWidth || 360;
-    h.style.transition = ease;
-    if (Math.abs(dx) > Math.min(90, w * .25)){
+    if (!deck) return;
+    const d = deck; deck = null; DRAG.on = false;
+    if (mode !== 'x') return;
+    const max = w + DECK_GAP, go = Math.abs(dx) > w * .22 || (Math.abs(vel) > .35 && Math.abs(dx) > 24 && Math.sign(vel) === Math.sign(dx));
+    const dur = reduceMotion() ? 0 : Math.round(Math.max(.26, Math.min(.5, (go ? max - Math.abs(dx) : Math.abs(dx)) / max * .5 + .18)) * 1000);
+    const tr = `transform ${dur}ms ${spring}`;
+    track.style.transition = tr; d.style.transition = `height ${dur}ms ${spring}`;
+    track.querySelectorAll('.hero').forEach(x => { x.style.transition = `${tr}, opacity ${dur}ms ease`; });
+    if (go){
       const dir = dx < 0 ? -1 : 1;
-      h.style.transform = `translateX(${dir * (w + 40)}px) rotate(${dir * 6}deg)`;
-      h.style.opacity = '0';
-      setTimeout(() => switchView(S.view === 'month' ? 'year' : 'month', dir), reduceMotion() ? 0 : 170);
-    } else { h.style.transform = ''; h.style.opacity = ''; }
+      track.style.transform = `translateX(calc(-100% - ${DECK_GAP}px + ${dir * max}px))`;
+      setP(1, d);
+      setTimeout(() => switchView(otherView(), dir), dur);
+    } else {
+      track.style.transform = `translateX(calc(-100% - ${DECK_GAP}px))`;
+      setP(0, d);
+      if (DRAG.pending) setTimeout(render, dur);
+    }
   };
   view.addEventListener('touchend', end, { passive: true });
   view.addEventListener('touchcancel', end, { passive: true });
@@ -833,7 +970,7 @@ function monthTotals(){
   return { rows, extra, spent, budget: d.budget, left: d.budget - spent };
 }
 
-function renderMonth(){
+function renderMonth(target){
   const { rows, extra, spent, budget, left } = monthTotals();
   const sim = S.sim.on;
   const usedBp = budget > 0 ? Math.round(spent * 10000 / budget) : (spent > 0 ? 10000 : 0);
@@ -867,7 +1004,7 @@ function renderMonth(){
   const maxCat = cats.length ? cats[0][1] : 1;
   const heroCls = sim ? 'sim' : left < 0 ? 'neg' : '';
 
-  $('#view').innerHTML = `
+  (target || $('#view')).innerHTML = `
   ${sim ? `<div class="simbar"><span>Modo simulação: toca numa despesa para a retirar ou usa + para testar uma nova. Nada é gravado.</span><button data-act="sim">Sair</button></div>` : ''}
   <section class="hero ${heroCls}">
     <div class="hero-top"><span class="eyebrow">Valor restante</span></div>
@@ -885,7 +1022,8 @@ function renderMonth(){
 
   ${cats.length ? `<div class="rail">${cats.map(([k, v]) => `
     <button class="cat-chip ${S.filter === k ? 'on' : ''}" style="--c:${CAT[k].c}" data-cat="${esc(k)}">${icon(k, 'sm')}
-      <small>${esc(k)}</small><b class="num">${eur(v)}</b><div class="mini"><i style="width:${(v * 100 / maxCat).toFixed(1)}%"></i></div></button>`).join('')}</div>` : ''}
+      <small>${esc(k)}</small><b class="num">${eur(v)}</b><div class="mini"><i style="width:${(v * 100 / maxCat).toFixed(1)}%"></i></div></button>`).join('')}
+    <button class="cat-chip add" data-act="newCat" aria-label="Nova categoria"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><small>Nova categoria</small></button></div>` : ''}
 
   <div class="sh"><h2>${S.filter ? esc(S.filter) : 'Despesas registadas'}</h2><span>${S.filter ? `<button data-act="clearFilter" style="color:var(--accent);font-weight:700">Ver todas</button>` : `${count} ${count === 1 ? 'despesa' : 'despesas'}`}</span></div>
   ${count ? extraHtml + listHtml : `<div class="empty">${icon('Outros')}<b>Sem despesas neste mês</b><p>Carrega no + para registar a primeira.</p><button class="btn primary inline" data-act="add">Adicionar despesa</button></div>`}
@@ -913,7 +1051,7 @@ function ledger(y){
   return { rows, closedTotal: total, extraNet, saved: total + extraNet, cur: rows.find(r => r.cur), monthsLeft };
 }
 
-function renderYear(){
+function renderYear(target){
   const y = S.yearData, today = y.today, goal = y.goal;
   let spentYear = 0, withData = 0;
   y.months.forEach(m => { spentYear += m.spent; if (m.hasData && m.month <= today) withData++; });
@@ -970,7 +1108,7 @@ function renderYear(){
     <button class="mrow" data-extra="${esc(e.id)}"><span><b>${esc(e.desc)}</b><small class="s">${e.date ? fmtDate(e.date) : ''}${e.spent ? (e.date ? ' · ' : '') + 'gasto ' + eur(e.spent) : ''}</small></span>
       <span class="r num"><b>${eur(e.cents - e.spent)}</b><small class="s">de ${eur(e.cents)}</small></span></button>`).join('');
 
-  $('#view').innerHTML = `
+  (target || $('#view')).innerHTML = `
   ${hero}
   ${advice}
   <section class="card"><div class="card-h"><h3>Mês a mês</h3><span class="hint" style="margin:0">Guardado</span></div>${ledgerHtml || '<p class="hint">Sem meses neste ano.</p>'}</section>
@@ -1008,8 +1146,8 @@ function openForm(mode, e){
     <div class="amount-cap">${F.mode === 'sim' ? 'Não fica gravada' : monthLabel(S.month)}</div>
     <input class="field" id="fDesc" maxlength="100" placeholder="Descrição (ex.: Farmácia)" value="${esc(F.desc)}" autocomplete="off" enterkeyhint="done">
     <span class="lbl">Categoria</span>
-    <div class="cats">${CATS.map(c => `<button class="cat-pick" data-pick="${c}" style="--c:${CAT[c].c}">${icon(c, 'sm')}${c}</button>`).join('')}</div>
-    ${F.mode !== 'sim' ? `<span class="lbl">Data</span>
+    <div class="cats">${CATS.map(c => `<button class="cat-pick" data-pick="${esc(c)}" style="--c:${CAT[c].c}">${icon(c, 'sm')}${esc(c)}</button>`).join('')}${addCatBtn}</div>
+    ${F.mode !== 'sim' ?`<span class="lbl">Data</span>
     <div class="dates">${quick.map(q => `<button class="pill" data-date="${q[1]}">${q[0]}</button>`).join('')}
       <input type="date" class="date-in" id="fDate" min="${min}" max="${max}" value="${F.date}" aria-label="Data"></div>` : ''}
     <div class="keypad">${['1','2','3','4','5','6','7','8','9',',','0','del'].map(k => `<button class="key" data-key="${k}" aria-label="${k === 'del' ? 'Apagar' : k}">${k === 'del' ? '<svg viewBox="0 0 24 24"><path d="M21 5H9l-6 7 6 7h12z"/><path d="M17 9l-6 6M11 9l6 6"/></svg>' : k}</button>`).join('')}</div>
@@ -1126,7 +1264,8 @@ function openSettings(){
     ${S.view !== 'year' || !S.yearData ? '' : `<span class="lbl">Objetivo de poupança ${year}</span>
     <input class="field num" id="sGoal" inputmode="decimal" placeholder="ex.: 1.200,00" value="${goal ? num(goal) : ''}">`}
     <div style="height:18px"></div>
-    ${ACCOUNT.email ? `<div class="set-row">Conta <span>${esc(ACCOUNT.email)}</span></div>` : ''}
+    <button class="set-row" style="width:100%" data-act="cats">Categorias <span>${CUSTOM.length ? CUSTOM.length + (CUSTOM.length === 1 ? ' criada' : ' criadas') : 'Criar'} ›</span></button>
+    ${ACCOUNT.email ?`<div class="set-row">Conta <span>${esc(ACCOUNT.email)}</span></div>` : ''}
     <button class="set-row logout" style="width:100%" data-act="logout">Terminar sessão
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h11"/></svg></button>`);
 }
@@ -1148,6 +1287,91 @@ async function saveSettings(btn){
     if (gt != null && goal !== S.yearData.goal) await call('setGoal', { year, cents:goal });
     closeSheet(); toast('Guardado'); load();
   } catch (e) { btn.disabled = false; toast(e.message); }
+}
+
+/* ---------- categorias personalizadas ---------- */
+// guarda o formulário de onde se veio, para voltar a ele já com a categoria nova escolhida
+function catOrigin(){
+  if (F && ['add', 'edit', 'sim'].includes(F.mode)){
+    const snap = Object.assign({}, F, { desc: $('#fDesc') ? $('#fDesc').value : F.desc, date: $('#fDate') ? $('#fDate').value : F.date });
+    return name => {
+      openForm(snap.mode === 'edit' ? 'edit' : 'add', snap.mode === 'edit' ? { id:snap.id, cents:0, desc:'', category:'Outros', date:snap.date } : undefined);
+      Object.assign(F, snap, { cat: name || snap.cat, catManual: true });
+      $('#fDesc').value = F.desc; if ($('#fDate')) $('#fDate').value = F.date; updateForm();
+    };
+  }
+  if (F && F.mode === 'rec'){
+    const snap = { id:F.id, cat:F.cat, desc:$('#rDesc').value, val:$('#rVal').value, act:$('#rAct') ? $('#rAct').checked : true };
+    return name => {
+      const r = snap.id ? Object.assign({}, S.recData.items.find(x => x.id === snap.id)) : null;
+      openRec(r);
+      F.cat = name || snap.cat; $('#rDesc').value = snap.desc; $('#rVal').value = snap.val; if ($('#rAct')) $('#rAct').checked = snap.act;
+      document.querySelectorAll('.cat-pick').forEach(b => b.classList.toggle('on', b.dataset.pick === F.cat));
+    };
+  }
+  if (F && F.mode === 'catlist') return () => openCatManager();
+  return null;
+}
+function openCategory(c, back){
+  const isNew = !c;
+  c = c || { name:'', color: CAT_COLORS[CUSTOM.length % CAT_COLORS.length], icon:'tag', words:[] };
+  F = { mode:'cat', old: isNew ? null : c.name, color:c.color, icon:c.icon, back };
+  openSheet(`
+    <div class="sheet-h"><button data-act="${back ? 'catBack' : 'close'}">Cancelar</button><b>${isNew ? 'Nova categoria' : 'Editar categoria'}</b><button data-act="saveCat" style="color:var(--accent);font-weight:700">Guardar</button></div>
+    <div class="cat-prev" id="cPrev"></div>
+    <span class="lbl">Nome</span>
+    <input class="field" id="cName" maxlength="30" value="${esc(c.name)}" autocomplete="off">
+    <span class="lbl">Cor</span>
+    <div class="swatches">${CAT_COLORS.map(k => `<button class="swatch" data-color="${k}" style="--c:${k}" aria-label="Cor ${k}"></button>`).join('')}</div>
+    <span class="lbl">Ícone</span>
+    <div class="icons">${Object.keys(CAT_ICONS).map(k => `<button class="icon-pick" data-icon="${k}" aria-label="${k}"><svg viewBox="0 0 24 24">${CAT_ICONS[k]}</svg></button>`).join('')}</div>
+    <span class="lbl">Palavras-chave (separadas por vírgula)</span>
+    <input class="field" id="cWords" value="${esc((c.words || []).join(', '))}" autocomplete="off">
+    <label class="check"><input type="checkbox" id="cApply"${isNew ? ' checked' : ''}> Mudar também as despesas já registadas</label>
+    ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad)" data-act="delCat">Eliminar categoria</button>`}`);
+  updateCatForm();
+}
+function updateCatForm(){
+  const name = ($('#cName') && $('#cName').value.trim()) || 'Nova categoria';
+  $('#cPrev').innerHTML = `<i class="ic" style="--c:${F.color}"><svg viewBox="0 0 24 24">${CAT_ICONS[F.icon] || CAT_ICONS.tag}</svg></i><span>${esc(name)}</span>`;
+  document.querySelectorAll('.swatch').forEach(b => b.classList.toggle('on', b.dataset.color === F.color));
+  document.querySelectorAll('.icon-pick').forEach(b => { b.classList.toggle('on', b.dataset.icon === F.icon); b.style.setProperty('--c', F.color); });
+}
+async function saveCat(btn){
+  const name = $('#cName').value.trim();
+  if (!name) return toast('Nome em falta.');
+  const words = $('#cWords').value.split(',').map(w => w.trim()).filter(Boolean);
+  const applyExisting = $('#cApply').checked, back = F.back, old = F.old;
+  btn.disabled = true;
+  try {
+    const r = await call('saveCategory', { oldName: old, name, color: F.color, icon: F.icon, words, applyExisting });
+    applyCustomCats(CUSTOM.filter(c => c.name !== old).concat([{ name: r.name, color: F.color, icon: F.icon, words }]));
+    S.data = S.data && Object.assign({}, S.data); S.yearData = null;
+    toast(r.moved ? `Guardada · ${r.moved} ${r.moved === 1 ? 'despesa mudou' : 'despesas mudaram'} de categoria` : 'Categoria guardada');
+    if (back) back(r.name); else closeSheet();
+    load();
+  } catch (e) { btn.disabled = false; toast(e.message); }
+}
+async function delCat(btn){
+  if (btn.dataset.sure !== '1'){ btn.dataset.sure = '1'; btn.textContent = 'Toca outra vez — as despesas passam para Outros'; return; }
+  const name = F.old, back = F.back;
+  btn.disabled = true;
+  try {
+    await call('deleteCategory', { name });
+    applyCustomCats(CUSTOM.filter(c => c.name !== name)); S.yearData = null;
+    toast('Categoria eliminada');
+    if (back) back(null); else closeSheet();
+    load();
+  } catch (e) { btn.disabled = false; toast(e.message); }
+}
+function openCatManager(){
+  F = { mode:'catlist' };
+  openSheet(`
+    <div class="sheet-h"><button data-act="close">Fechar</button><b>Categorias</b><button data-act="newCat" style="color:var(--accent);font-weight:700">Nova</button></div>
+    ${CUSTOM.length ? `<div class="txs" style="box-shadow:none;background:var(--press)">${CUSTOM.map(c => `
+      <button class="tx" data-editcat="${esc(c.name)}">${icon(c.name)}<div class="tx-main"><b>${esc(c.name)}</b><small>${esc(c.words.join(', ') || '—')}</small></div></button>`).join('')}</div>`
+      : `<div class="empty" style="padding:24px 8px">${icon('Outros')}<b>Ainda não criaste categorias</b></div>`}
+    <button class="btn primary" data-act="newCat" style="margin-top:16px">Criar categoria</button>`);
 }
 
 /* ---------- despesas recorrentes ---------- */
@@ -1177,7 +1401,7 @@ function openRec(r){
     <span class="lbl">Valor por mês</span>
     <input class="field num" id="rVal" inputmode="decimal" value="${r.cents ? num(r.cents) : ''}" autocomplete="off">
     <span class="lbl">Categoria</span>
-    <div class="cats">${CATS.map(c => `<button class="cat-pick ${c === F.cat ? 'on' : ''}" data-pick="${c}" style="--c:${CAT[c].c}">${icon(c, 'sm')}${c}</button>`).join('')}</div>
+    <div class="cats">${CATS.map(c => `<button class="cat-pick ${c === F.cat ? 'on' : ''}" data-pick="${esc(c)}" style="--c:${CAT[c].c}">${icon(c, 'sm')}${esc(c)}</button>`).join('')}${addCatBtn}</div>
     ${isNew ? '' : `<label class="check"><input type="checkbox" id="rAct"${r.active ? ' checked' : ''}> Ativa</label>`}
     ${isNew ? '' : `<button class="linkbtn" style="color:var(--bad)" data-act="delRec">Eliminar</button>`}`);
 }
@@ -1279,9 +1503,12 @@ function shift(dir){
 
 /* ============================== eventos ============================== */
 document.addEventListener('click', ev => {
-  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra],[data-rec]');
+  const el = ev.target.closest('[data-act],[data-id],[data-hyp],[data-month],[data-cat],[data-key],[data-pick],[data-date],[data-sal],[data-extra],[data-rec],[data-color],[data-icon],[data-editcat]');
   if (!el) return;
   const ds = el.dataset;
+  if (ds.color && F && F.mode === 'cat'){ F.color = ds.color; buzz(); updateCatForm(); return; }
+  if (ds.icon && F && F.mode === 'cat'){ F.icon = ds.icon; buzz(); updateCatForm(); return; }
+  if (ds.editcat){ const c = CUSTOM.find(x => x.name === ds.editcat); if (c) openCategory(c, () => openCatManager()); return; }
   if (ds.rec){ const r = S.recData.items.find(x => x.id === ds.rec); if (r) openRec(r); return; }
   if (ds.pick && F && F.mode === 'rec'){ F.cat = ds.pick; buzz(); document.querySelectorAll('.cat-pick').forEach(b => b.classList.toggle('on', b.dataset.pick === F.cat)); return; }
   if (ds.sal){ openSalary(ds.sal); return; }
@@ -1322,6 +1549,11 @@ document.addEventListener('click', ev => {
     case 'addExtra': openExtra(null); break;
     case 'saveExtra': saveExtra(el); break;
     case 'delExtra': delExtra(el); break;
+    case 'newCat': { const back = catOrigin(); openCategory(null, back); break; }
+    case 'saveCat': saveCat(el); break;
+    case 'delCat': delCat(el); break;
+    case 'catBack': F.back(null); break;
+    case 'cats': openCatManager(); break;
     case 'addRec': openRec(null); break;
     case 'saveRec': saveRec(el); break;
     case 'delRec': delRec(el); break;
@@ -1339,6 +1571,7 @@ document.addEventListener('input', ev => {
   if (ev.target.id === 'fDesc'){ F.desc = ev.target.value; if (!F.catManual){ F.cat = guessCat(F.desc); updateForm(); } }
   if (ev.target.id === 'fDate'){ F.date = ev.target.value; updateForm(); }
   if (ev.target.id === 'sSal') updateSalary();
+  if (ev.target.id === 'cName') updateCatForm();
 });
 document.addEventListener('keydown', ev => {
   if (!F || !['add','edit','sim'].includes(F.mode)) { if (ev.key === 'Escape' && F) closeSheet(); return; }
@@ -1368,6 +1601,7 @@ const Mock = (() => {
   function save(d){ try { localStorage.setItem(K, JSON.stringify(d)); } catch (e) {} }
   return function (a, p){
     const d = load(); let r;
+    applyCustomCats(d.cats || []);
     const bud = m => d.months[m] != null ? d.months[m] : d.def;
     switch (a){
       case 'getMonth': r = { month:p.month, budget:bud(p.month), defaultBudget:d.def, goal:d.goals[p.month.slice(0, 4)] || 0, expenses:d.exp.filter(e => e.month === p.month), email:'pré-visualização', sheetUrl:'' }; break;
@@ -1400,6 +1634,15 @@ const Mock = (() => {
         r = { id:rec.id }; break;
       }
       case 'deleteRecurring': d.rec = (d.rec || []).filter(x => x.id !== p.id); r = { id:p.id }; break;
+      case 'saveCategory': {
+        d.cats = (d.cats || []).filter(c => c.name !== p.oldName);
+        if (BUILTIN.concat(d.cats.map(c => c.name)).some(n => normTxt(n) === normTxt(p.name))) throw new Error('Já existe uma categoria com esse nome.');
+        d.cats.push({ name:p.name, color:p.color, icon:p.icon, words:p.words });
+        let moved = 0;
+        d.exp.forEach(e => { if (p.oldName && e.category === p.oldName) e.category = p.name; else if (p.applyExisting && e.category !== p.name && matchesWords(e.desc, p.words)) { e.category = p.name; moved++; } });
+        r = { name:p.name, moved }; break;
+      }
+      case 'deleteCategory': d.cats = (d.cats || []).filter(c => c.name !== p.name); d.exp.forEach(e => { if (e.category === p.name) e.category = 'Outros'; }); r = { name:p.name }; break;
       default: throw new Error('Ação desconhecida.');
     }
     save(d); return JSON.parse(JSON.stringify(r));
