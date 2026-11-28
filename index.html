@@ -862,7 +862,7 @@ async function api(action, p){
       return {};
     }
     case 'getMonth': return { auto, appColor: D.cfg.corApp ? String(D.cfg.corApp.value) : '',
-      month: p.month, budget: D.months[p.month] ? D.months[p.month].budget : D.def, defaultBudget: D.def,
+      month: p.month, budget: D.months[p.month] ? D.months[p.month].budget : D.def, defaultBudget: D.def, salary: D.months[p.month] ? D.months[p.month].salary : null,
       goal: D.goals[p.month.slice(0, 4)] ? D.goals[p.month.slice(0, 4)].goal : 0,
       expenses: D.exp.filter(e => e.month === p.month), email: ACCOUNT.email };
     case 'addExpenses': {
@@ -1247,11 +1247,11 @@ function renderMonth(target){
 // Contas do ano, como na tabela "Geral": Guardar = salário − orçamento; Sobrou = orçamento − gasto;
 // Guardado = Guardar + Sobrou; Total = soma dos meses fechados. Subsídios (valor − gasto) somam ao total.
 function ledger(y){
-  const today = y.today;
+  const today = y.today, nextM = nextMonth(today);
   let total = 0; const rows = [];
   y.months.forEach(m => {
     const closed = m.month < today, cur = m.month === today;
-    const show = (closed && (m.hasData || m.salary != null)) || cur;   // só até ao mês atual
+    const show = (closed && (m.hasData || m.salary != null)) || cur || m.month === nextM;   // até ao mês seguinte (o salário costuma chegar antes)
     if (!show) return;
     const guardar = m.salary != null ? m.salary - m.budget : 0;
     const sobrou = m.month > today ? 0 : m.budget - m.spent;
@@ -1496,7 +1496,9 @@ function openSettings(){
     <div class="sheet-h"><button data-act="close">Cancelar</button><b>Definições</b><button data-act="saveSettings" style="color:var(--accent);font-weight:700">Guardar</button></div>
     ${isMonth && d ? `<span class="lbl">Orçamento de ${monthLabel(ym)}</span>
       <input class="field num" id="sBud" inputmode="none" readonly data-kpf value="${d.budget ? num(d.budget) : ''}">
-      <label class="check"><input type="checkbox" id="sDef"${d.budget === d.defaultBudget || !d.defaultBudget ? ' checked' : ''}> Usar também nos próximos meses</label>` : ''}
+      <label class="check"><input type="checkbox" id="sDef"${d.budget === d.defaultBudget || !d.defaultBudget ? ' checked' : ''}> Usar também nos próximos meses</label>
+      <span class="lbl">Salário recebido para ${monthLabel(ym)}</span>
+      <input class="field num" id="sSalM" inputmode="none" readonly data-kpf value="${d.salary != null ? num(d.salary) : ''}">` : ''}
     ${S.view !== 'year' || !S.yearData ? '' : `<span class="lbl">Objetivo de poupança ${year}</span>
     <input class="field num" id="sGoal" inputmode="none" readonly data-kpf value="${goal ? num(goal) : ''}">`}
     <div style="height:18px"></div>
@@ -1520,9 +1522,16 @@ async function saveSettings(btn){
     if (bud == null || bud < 0) return toast('Orçamento inválido.');
     def = $('#sDef').checked;
   }
+  let salM;
+  if ($('#sSalM')){
+    const st = $('#sSalM').value.trim();
+    salM = st === '' ? null : parseAmount(st);
+    if (st !== '' && (salM == null || salM < 0)) return toast('Salário inválido.');
+  }
   btn.disabled = true;
   try {
     if (bud != null && (bud !== S.data.budget || (def && bud !== S.data.defaultBudget))) await call('setBudget', { month, cents:bud, makeDefault:def });
+    if (salM !== undefined && salM !== (S.data.salary == null ? null : S.data.salary)) await call('setSalary', { month, cents:salM });
     if (gt != null && goal !== S.yearData.goal) await call('setGoal', { year, cents:goal });
     if (F.color !== F.colorOrig) { await call('setConfig', { key:'corApp', value:F.color }); applyAppColor(F.color, true); }
     F.saved = true; closeSheet(); toast('Guardado'); load(); refreshOthers();
@@ -2092,7 +2101,7 @@ const Mock = (() => {
     applyCustomCats(d.cats || []);
     const bud = m => d.months[m] != null ? d.months[m] : d.def;
     switch (a){
-      case 'getMonth': r = { appColor:(d.cfg || {}).corApp || '', month:p.month, budget:bud(p.month), defaultBudget:d.def, goal:d.goals[p.month.slice(0, 4)] || 0, expenses:d.exp.filter(e => e.month === p.month), email:'pré-visualização', sheetUrl:'' }; break;
+      case 'getMonth': r = { appColor:(d.cfg || {}).corApp || '', salary:(d.sal || {})[p.month] != null ? d.sal[p.month] : null, month:p.month, budget:bud(p.month), defaultBudget:d.def, goal:d.goals[p.month.slice(0, 4)] || 0, expenses:d.exp.filter(e => e.month === p.month), email:'pré-visualização', sheetUrl:'' }; break;
       case 'addExpenses': r = p.items.map(it => { const e = Object.assign({}, it, { id:'n' + (d.n++) }); d.exp.push(e); if (d.months[it.month] == null) d.months[it.month] = d.def; return e; }); break;
       case 'updateExpense': { const e = d.exp.find(x => x.id === p.id); if (!e) throw new Error('Despesa não encontrada.'); Object.assign(e, { desc:p.desc, cents:p.cents, category:p.category }); if (p.date && p.date.slice(0, 7) === e.month) e.date = p.date; r = e; break; }
       case 'deleteExpense': d.exp = d.exp.filter(x => x.id !== p.id); r = { id:p.id }; break;
